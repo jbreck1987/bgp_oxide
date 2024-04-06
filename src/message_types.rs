@@ -75,7 +75,6 @@ struct Notification {
     // message has a known length.
     data: Vec<u8>
 }
-struct Message {}
 struct Tlv { // These will be constructed on the fly
     param_type: u8,
     param_length: u8,

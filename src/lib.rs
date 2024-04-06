@@ -5,7 +5,4 @@
 
 mod message_types;
 mod errors;
-#[cfg(test)]
-mod tests {
-    use super::*;
-}
+
