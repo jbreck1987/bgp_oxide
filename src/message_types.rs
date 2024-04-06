@@ -65,7 +65,16 @@ struct Update {
     // routes only need prefix info to be removed.
     nlri: Vec<Route>,
 }
-struct Notification {}
+struct Notification {
+    // "Error Code"
+    err_code: u8,
+    // "Error Subcode"
+    err_subcode: u8,
+    // "Data"; variable length. There is no length field for this since
+    // the length can be dynamically determined since each structure in the
+    // message has a known length.
+    data: Vec<u8>
+}
 struct Message {}
 struct Tlv { // These will be constructed on the fly
     param_type: u8,
