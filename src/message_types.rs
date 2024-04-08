@@ -1,4 +1,6 @@
 use std::{cell::RefCell}; // For testing private structs
+use crate::errors;
+use crate::path_attrs;
 
 // Definitions for the basic message types in BGP.
 static OPEN_VALUE: u8 = 1;
@@ -7,7 +9,6 @@ static KEEP_VALUE: u8 = 3;
 static NOT_VALUE: u8 = 4;
 
 type KeepAlive = Header;
-trait PAttr {}
 
 #[derive(Debug)]
 pub struct Header {
@@ -34,7 +35,6 @@ impl Header {
         }
     }
 }
-
 pub enum MessageType {
     Open,
     Update,
@@ -60,16 +60,17 @@ struct Update {
     withdrawn_routes: Vec<Route>,
     total_path_attr_len: u16,
     // Using trait object since can have a mixture of normal and extended Path Attributes here.
-    path_attrs: Vec<Box::<dyn PAttr>>,
+    path_attrs: Vec<Box::<dyn path_attrs::PAttr>>,
     // Only difference from withdrawn routes is that the PAs apply to the NLRI, while the withdrawn
     // routes only need prefix info to be removed.
     nlri: Vec<Route>,
 }
 struct Notification {
-    // "Error Code"
-    err_code: u8,
-    // "Error Subcode"
-    err_subcode: u8,
+    // "Error Code". This will get serialized to a u8
+    err_code: errors::NotifErrorCode,
+    // "Error Subcode". This will get serialized to a u8. 
+    // need to decouple NotifErrorCode and Subcode in errors mod.
+    err_subcode: errors::NotifErrorSubCode,
     // "Data"; variable length. There is no length field for this since
     // the length can be dynamically determined since each structure in the
     // message has a known length.
@@ -106,23 +107,7 @@ impl Route {
         }
     }
 }
- struct PathAttr {
-    attr_flags: u8,
-    attr_type_code: u8,
-    attr_len: u8,
-    attr_value: Vec<u8>,
-    
- }
- impl PAttr for PathAttr {}
 
-  struct PathAttrExt {
-    // Extended path attributes give 16 bits to determine the length of the attribute value (in octets)
-    attr_flags: u8,
-    attr_type_code: u8,
-    attr_len: u16,
-    attr_value: Vec<u8>,
- }
- impl PAttr for PathAttrExt {}
 
 #[cfg(test)]
 mod tests {
