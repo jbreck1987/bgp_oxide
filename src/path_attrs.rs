@@ -1,6 +1,10 @@
 // This module will house all the structs and machinery related to Path Attributes (PA)
 
-use std::{fmt::Display, error::Error};
+use std::{
+    fmt::Display,
+    error::Error,
+    cell::RefCell,
+};
 
 // Implement a basic PA error
 #[derive(Debug, PartialEq)]
@@ -16,10 +20,7 @@ impl Error for PathAttrError {}
 // is variable. Will be used for creating a trait object for use in containers.
 pub(crate) trait PAttr {
     // Bit Fiddling
-    fn set_ext_bit(&mut self) {
-        // Sets the appropriate bits to encode an Extended Length PA
-        // RFC 4271; Pg. 17
-    }
+
     fn set_opt_bit(&mut self) {
         // Sets the appropriate bit to encode whether the PA is optional or not
         // RFC 4271; Pg. 16
@@ -31,9 +32,6 @@ pub(crate) trait PAttr {
     fn set_partial_bit(&mut self) {
          // Sets the appropriate bit to encode whether the PA is Partial or not
          // RFC 4271; Pg. 17
-    }
-    fn set_type_code(&mut self, value: u8) {
-        // Sets the type code of the PA. RFC 4271, Pg. 16
     }
 }
 
@@ -47,8 +45,17 @@ pub(crate) struct PathAttr {
     
  }
 impl PAttr for PathAttr {
-    fn set_type_code(&mut self, value: u8) {
-        todo!()
+    fn set_opt_bit(&mut self) {
+        // Set MSB (network byte order) to 1
+        self.attr_flags = self.attr_flags | 1 << 7;
+    }
+    fn set_trans_bit(&mut self) {
+        // Set second MSB (network byte order) to 1
+        self.attr_flags = self.attr_flags | 1 << 6;
+    }
+    fn set_partial_bit(&mut self) {
+         // Set third MSB (network byte order) to 1
+        self.attr_flags = self.attr_flags | 1 << 5;       
     }
 }
 impl PathAttr {
@@ -70,7 +77,9 @@ impl PathAttr {
             0 | 1 | 2 => {
                 // Build new PA instance
                 let mut pa  = Self::new();
-                pa.set_type_code(1);
+                pa.set_trans_bit();
+                pa.attr_type_code = 1;
+                pa.attr_len = 1;
                 pa.attr_value.push(value);
                 Ok(pa)
             }
@@ -91,3 +100,51 @@ pub(crate) struct PathAttrExt {
     attr_value: Vec<u8>,
  }
 impl PAttr for PathAttrExt {}
+impl PathAttrExt {
+        fn set_ext_bit(&mut self) {
+        // Sets the appropriate bits to encode an Extended Length PA
+        // RFC 4271; Pg. 17
+        todo!();
+    }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_origin_valid_value() {
+        for i in 0..=2 {
+            let origin = PathAttr::build_origin(i);
+            let cell = RefCell::new(origin);
+            match cell.borrow().as_ref() {
+                Ok(origin) => {
+                    // Only transitive bit should be set since this is a well-known, mandatory (non-optional)
+                    // PA. This means the attr flags field should equal 128 in decimal.
+                    assert_eq!(64, origin.attr_flags);
+                    assert_eq!(1, origin.attr_type_code);
+                    assert_eq!(i, origin.attr_value[0]);
+                }
+                _ => {
+                    println!("Expected Ok() for the given values, received and Err()")
+                }
+
+            };
+        }
+    }
+    #[test]
+    fn build_origin_invalid_value() {
+        let origin = PathAttr::build_origin(11);
+        let cell = RefCell::new(origin);
+        match cell.borrow().as_ref() {
+            Ok(_) => {
+                panic!("Expected Err() due to incorrect value, got Ok()!")
+            }
+            Err(e) => {
+                assert_eq!(*e, PathAttrError(String::from("Invalid value, valid values are 0, 1, 2.")));
+            }
+        };
+    }
+}
