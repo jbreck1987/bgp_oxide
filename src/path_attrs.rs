@@ -1,9 +1,7 @@
 // This module will house all the structs and machinery related to Path Attributes (PA)
 
 use std::{
-    fmt::Display,
-    error::Error,
-    cell::RefCell,
+    cell::RefCell, error::Error, fmt::Display
 };
 
 // Implement a basic PA error
@@ -58,6 +56,12 @@ impl PAttr for PathAttr {
         self.attr_flags = self.attr_flags | 1 << 5;       
     }
 }
+enum AsSegment {
+    // Used when building the AS_PATH PA. RFC 4721, Pg. 18
+    // The vec holds ASes.
+    AsSequence(Vec<u16>),
+    AsSet(Vec<u16>)
+}
 impl PathAttr {
     fn new() -> Self {
         // Returns a bare PathAttr instance. This isn't public because all PAs should have
@@ -71,7 +75,7 @@ impl PathAttr {
         }
     }
     pub(crate) fn build_origin(value: u8) -> Result<Self, PathAttrError> {
-        // Builds the well-known, mandatory Origin PA
+        // Builds the well-known, mandatory ORIGIN PA
         // RFC 4271; Pg. 18
         match value {
             0 | 1 | 2 => {
@@ -87,6 +91,42 @@ impl PathAttr {
                 Err(PathAttrError(String::from("Invalid value, valid values are 0, 1, 2.")))
             }
         }
+    }
+    pub(crate) fn build_as_path(as_segs: Vec<AsSegment>) -> Self {
+        // Builds the well-known, mandatory AS_PATH PA, RFC 4271, Pg. 18
+        // This function assumes the given sequence of AS Segments has been constructed
+        // properly.
+        let mut pa = Self::new();
+        pa.set_trans_bit();
+        pa.attr_type_code = 2;
+
+        // Now need to construct the attribute value as a sequence of AS Segments, each of which
+        // are TLVs that will be flattened into a vec of u8s
+        for seg in as_segs {
+            match seg {
+                AsSegment::AsSequence(ases) => {
+                    // AS_SEQUENCE segment type is 2
+                    pa.attr_value.push(2);
+                    pa.attr_value.push(ases.len() as u8);
+                    for a in ases {
+                        pa.attr_value.push((a >> 8) as u8); // Add High order 8 bits
+                        pa.attr_value.push((a & 0xFF) as u8) // Add Low order 8 bits
+                    }
+                },
+                AsSegment::AsSet(ases) => {
+                    // AS_SET segment type is 1
+                    pa.attr_value.push(1);
+                    pa.attr_value.push(ases.len() as u8);
+                    for a in ases {
+                        pa.attr_value.push((a >> 8) as u8); // Add High order 8 bits
+                        pa.attr_value.push((a & 0xFF) as u8) // Add Low order 8 bits
+                    }
+                }
+            }
+        }
+        pa.attr_len = pa.attr_value.len() as u8;
+        pa
+        
     }
 }
 
@@ -122,7 +162,7 @@ mod tests {
             match cell.borrow().as_ref() {
                 Ok(origin) => {
                     // Only transitive bit should be set since this is a well-known, mandatory (non-optional)
-                    // PA. This means the attr flags field should equal 128 in decimal.
+                    // PA. This means the attr flags field should equal 64 in decimal.
                     assert_eq!(64, origin.attr_flags);
                     assert_eq!(1, origin.attr_type_code);
                     assert_eq!(i, origin.attr_value[0]);
@@ -146,5 +186,30 @@ mod tests {
                 assert_eq!(*e, PathAttrError(String::from("Invalid value, valid values are 0, 1, 2.")));
             }
         };
+    }
+    #[test]
+    fn build_as_path() {
+        // Create a sequence of AS Segments. One AS_SET and one AS_SEQUENCE
+        let as_segs = vec![AsSegment::AsSet(vec![65000u16, 65001]), AsSegment::AsSequence(vec![131u16, 30437])];
+        let aspath = PathAttr::build_as_path(as_segs);
+        let cell = RefCell::new(aspath);
+
+        // Path Attr checks
+        assert_eq!(cell.borrow().attr_flags, 64);
+        assert_eq!(cell.borrow().attr_type_code, 2);
+        assert_eq!(cell.borrow().attr_len, 12);
+        // Verify the path attr values are correctly encoded.
+        assert_eq!(cell.borrow().attr_value[0], 1); // AS_SET Segment type
+        assert_eq!(cell.borrow().attr_value[1], 2); // num ASes in AS_SET
+        assert_eq!(cell.borrow().attr_value[2], 253); // MSB of first AS
+        assert_eq!(cell.borrow().attr_value[3], 232); // LSB of first AS
+        assert_eq!(cell.borrow().attr_value[4], 253); // MSB of second AS
+        assert_eq!(cell.borrow().attr_value[5], 233); // LSB of second AS
+        assert_eq!(cell.borrow().attr_value[6], 2); // AS_SEQUENCE Segment type
+        assert_eq!(cell.borrow().attr_value[7], 2); // num ASes in AS_SEQUENCE
+        assert_eq!(cell.borrow().attr_value[8], 0); // MSB of first AS
+        assert_eq!(cell.borrow().attr_value[9], 131); // LSB of first AS
+        assert_eq!(cell.borrow().attr_value[10], 118); // MSB of second AS
+        assert_eq!(cell.borrow().attr_value[11], 229); // LSB of second AS
     }
 }
