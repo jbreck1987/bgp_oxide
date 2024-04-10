@@ -249,4 +249,19 @@ mod tests {
         bytes.copy_from_slice(cell.borrow().attr_value.as_slice());
         assert_eq!(Ipv4Addr::from(bytes), Ipv4Addr::from_str("192.168.0.0").unwrap());
     }
+    #[test]
+    fn build_next_hop_v6() {
+        // Using Ipv6 Neighbor Solicitation dest address (multicast) because why not?
+        let ip = Ipv6Addr::new(0xFF02, 0, 0, 0, 0, 0x0001, 0xFFCC, 0xCCCC);
+        let n_hop = PathAttr::build_next_hop(IpAddr::V6(ip));
+        let cell = RefCell::new(n_hop);
+
+        // Path Attr checks
+        assert_eq!(cell.borrow().attr_flags, 64u8);
+        assert_eq!(cell.borrow().attr_type_code, 3u8);
+        assert_eq!(cell.borrow().attr_len, 16u8);
+
+        // Cumbersome to build an Ipv6Addr, so will just compare the octets.
+        assert_eq!(cell.borrow().attr_value, ip.octets());
+    }
 }
