@@ -1,7 +1,10 @@
 // This module will house all the structs and machinery related to Path Attributes (PA)
 
 use std::{
-    cell::RefCell, error::Error, fmt::Display
+    cell::RefCell,
+    error::Error,
+    fmt::Display,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 
 // Implement a basic PA error
@@ -97,8 +100,8 @@ impl PathAttr {
         // This function assumes the given sequence of AS Segments has been constructed
         // properly.
         let mut pa = Self::new();
-        pa.set_trans_bit();
         pa.attr_type_code = 2;
+        pa.set_trans_bit();
 
         // Now need to construct the attribute value as a sequence of AS Segments, each of which
         // are TLVs that will be flattened into a vec of u8s
@@ -128,6 +131,24 @@ impl PathAttr {
         pa
         
     }
+    pub(crate) fn build_next_hop(next_hop: IpAddr) -> Self {
+        // Builds the well-known, mandatory NEXT_HOP PA; RFC 4271, Pg. 19
+        // Enabling both v4 and v6 transport
+        let mut pa = Self::new();
+        pa.set_trans_bit();
+        pa.attr_type_code = 3;
+        match next_hop {
+            IpAddr::V4(inner_addr) => {
+                pa.attr_len = 4;
+                pa.attr_value.extend_from_slice(inner_addr.octets().as_slice())
+            },
+            IpAddr::V6(inner_addr) => {
+                pa.attr_len = 16;
+                pa.attr_value.extend_from_slice(inner_addr.octets().as_slice())
+            }
+        };
+        pa
+    }
 }
 
 // Extended path attributes give 16 bits to determine the length of the attribute value (in octets)
@@ -152,6 +173,8 @@ impl PathAttrExt {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -211,5 +234,19 @@ mod tests {
         assert_eq!(cell.borrow().attr_value[9], 131); // LSB of first AS
         assert_eq!(cell.borrow().attr_value[10], 118); // MSB of second AS
         assert_eq!(cell.borrow().attr_value[11], 229); // LSB of second AS
+    }
+    #[test]
+    fn build_next_hop_v4() {
+        let ip = Ipv4Addr::from_str("192.168.0.0").unwrap();
+        let n_hop = PathAttr::build_next_hop(IpAddr::V4(ip));
+        let cell = RefCell::new(n_hop);
+
+        // Path Attr checks
+        assert_eq!(cell.borrow().attr_flags, 64u8);
+        assert_eq!(cell.borrow().attr_type_code, 3u8);
+        assert_eq!(cell.borrow().attr_len, 4u8);
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(cell.borrow().attr_value.as_slice());
+        assert_eq!(Ipv4Addr::from(bytes), Ipv4Addr::from_str("192.168.0.0").unwrap());
     }
 }
