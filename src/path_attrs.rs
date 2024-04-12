@@ -173,6 +173,16 @@ impl PathAttr {
         pa.attr_value.extend_from_slice(value.to_be_bytes().as_slice());
         pa
     }
+
+    pub(crate) fn build_atomic_agg() -> Self {
+        // Builds the well-known, discretionary ATOMIC_AGGREGATE PA
+        // RFC 4271, Pg. 19. This is essentially a marker PA.
+        let mut pa = Self::new();
+        pa.set_trans_bit();
+        pa.attr_type_code = 6;
+        pa.attr_len = 0;
+        pa
+    }
 }
 
 // Extended path attributes give 16 bits to determine the length of the attribute value (in octets)
@@ -296,7 +306,7 @@ mod tests {
         assert_eq!(cell.borrow().attr_flags, 128);
         assert_eq!(cell.borrow().attr_type_code, 4);
         assert_eq!(cell.borrow().attr_len, 4);
-        // Value check. Should be 1000 decomposed as a u32
+        // Value check. Should be 1000 decomposed as a u8
         assert_eq!(cell.borrow().attr_value, vec![0u8, 0, 3, 232]);
     }
     #[test]
@@ -308,7 +318,20 @@ mod tests {
         assert_eq!(cell.borrow().attr_flags, 64);
         assert_eq!(cell.borrow().attr_type_code, 5);
         assert_eq!(cell.borrow().attr_len, 4);
-        // Value check. Should be 1000 decomposed as a u32
+        // Value check. Should be 1000 decomposed as a u8
         assert_eq!(cell.borrow().attr_value, vec![0u8, 0, 3, 232]);
+    }
+    #[test]
+    fn build_atomic_agg() {
+        let aa = PathAttr::build_atomic_agg();
+        let cell = RefCell::new(aa);
+
+        // Path Attr checks
+        assert_eq!(cell.borrow().attr_flags, 64);
+        assert_eq!(cell.borrow().attr_type_code, 6);
+        assert_eq!(cell.borrow().attr_len, 0);
+        // Value check. Should be 1000 decomposed as a u8
+        assert_eq!(cell.borrow().attr_value.is_empty(), true);
+        assert_eq!(cell.borrow().attr_value.len(), 0);
     }
 }
