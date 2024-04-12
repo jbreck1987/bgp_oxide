@@ -154,12 +154,17 @@ impl PathAttr {
         // Builds the optional, non-transitory PA MULTI_EXIT_DISC (MED)
         // RFC 4271, Pg. 19
         let mut pa = Self::new();
+        pa.set_opt_bit();
         pa.attr_type_code = 4;
         pa.attr_len = 4;
 
         // Need to decompose the u32 to bytes
         pa.attr_value.extend_from_slice(metric.to_be_bytes().as_slice());
         pa
+    }
+
+    pub(crate) fn build_local_pref(value: u32) -> Self {
+        todo!()
     }
 }
 
@@ -281,7 +286,7 @@ mod tests {
         let cell = RefCell::new(med);
 
         // Path Attr checks
-        assert_eq!(cell.borrow().attr_flags, 0);
+        assert_eq!(cell.borrow().attr_flags, 128);
         assert_eq!(cell.borrow().attr_type_code, 4);
         assert_eq!(cell.borrow().attr_len, 4);
         // Value check. Should be 1000 decomposed as a u32
