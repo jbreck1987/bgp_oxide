@@ -183,6 +183,21 @@ impl PathAttr {
         pa.attr_len = 0;
         pa
     }
+    pub(crate) fn build_aggregator_v4(last_as: u16, speaker: Ipv4Addr) -> Self {
+        // Builds the optional, transitive AGGREGATOR PA.
+        // RFC 4271, Pg. 19. Note that the base RFC only allows for BGP speakers
+        // to use IPv4 addresses as IDs!
+        let mut pa = Self::new();
+        pa.set_trans_bit();
+        pa.set_opt_bit();
+        pa.attr_type_code = 7;
+        pa.attr_len = 6;
+        // Append Last AS
+        pa.attr_value.extend_from_slice(last_as.to_be_bytes().as_slice());
+        // Append ID of the aggregator
+        pa.attr_value.extend_from_slice(speaker.octets().as_slice());
+        pa
+    }
 }
 
 // Extended path attributes give 16 bits to determine the length of the attribute value (in octets)
@@ -333,5 +348,25 @@ mod tests {
         // Value check. Should be 1000 decomposed as a u8
         assert_eq!(cell.borrow().attr_value.is_empty(), true);
         assert_eq!(cell.borrow().attr_value.len(), 0);
+    }
+    #[test]
+    fn build_aggregator_v4() {
+        let ag = PathAttr::build_aggregator_v4(65000, Ipv4Addr::new(1, 1, 1, 1));
+        let cell = RefCell::new(ag);
+
+        // Path Attr checks
+        assert_eq!(cell.borrow().attr_flags, 192);
+        assert_eq!(cell.borrow().attr_type_code, 7);
+        assert_eq!(cell.borrow().attr_len, 6);
+        
+        // First get the appropriate bytes from the vec as u8 arrays
+        let mut last_as_bytes: [u8; 2] = [0u8; 2];
+        let mut ip_bytes: [u8; 4] = [0u8; 4];
+        last_as_bytes.copy_from_slice(cell.borrow().attr_value[0..=1].as_ref());
+        ip_bytes.copy_from_slice(cell.borrow().attr_value[2..=5].as_ref());
+
+        // Now can check to see if they are correct.
+        assert_eq!(u16::from_be_bytes(last_as_bytes), 65000u16);
+        assert_eq!(Ipv4Addr::from(ip_bytes), Ipv4Addr::new(1, 1, 1, 1));
     }
 }
