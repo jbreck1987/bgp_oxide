@@ -149,6 +149,18 @@ impl PathAttr {
         };
         pa
     }
+
+    fn build_med(metric: u32) -> Self {
+        // Builds the optional, non-transitory PA MULTI_EXIT_DISC (MED)
+        // RFC 4271, Pg. 19
+        let mut pa = Self::new();
+        pa.attr_type_code = 4;
+        pa.attr_len = 4;
+
+        // Need to decompose the u32 to bytes
+        pa.attr_value.extend_from_slice(metric.to_be_bytes().as_slice());
+        pa
+    }
 }
 
 // Extended path attributes give 16 bits to determine the length of the attribute value (in octets)
@@ -174,7 +186,6 @@ impl PathAttrExt {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
-
     use super::*;
 
     #[test]
@@ -263,5 +274,17 @@ mod tests {
 
         // Cumbersome to build an Ipv6Addr, so will just compare the octets.
         assert_eq!(cell.borrow().attr_value, ip.octets());
+    }
+    #[test]
+    fn build_med() {
+        let med = PathAttr::build_med(1000);
+        let cell = RefCell::new(med);
+
+        // Path Attr checks
+        assert_eq!(cell.borrow().attr_flags, 0);
+        assert_eq!(cell.borrow().attr_type_code, 4);
+        assert_eq!(cell.borrow().attr_len, 4);
+        // Value check. Should be 1000 decomposed as a u32
+        assert_eq!(cell.borrow().attr_value, vec![0u8, 0, 3, 232]);
     }
 }
