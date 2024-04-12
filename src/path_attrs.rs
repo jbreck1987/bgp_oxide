@@ -112,8 +112,8 @@ impl PathAttr {
                     pa.attr_value.push(2);
                     pa.attr_value.push(ases.len() as u8);
                     for a in ases {
-                        pa.attr_value.push((a >> 8) as u8); // Add High order 8 bits
-                        pa.attr_value.push((a & 0xFF) as u8) // Add Low order 8 bits
+                        // Decompose the u16 to two u8s and add to vec
+                        pa.attr_value.extend_from_slice(a.to_be_bytes().as_slice());
                     }
                 },
                 AsSegment::AsSet(ases) => {
@@ -121,8 +121,8 @@ impl PathAttr {
                     pa.attr_value.push(1);
                     pa.attr_value.push(ases.len() as u8);
                     for a in ases {
-                        pa.attr_value.push((a >> 8) as u8); // Add High order 8 bits
-                        pa.attr_value.push((a & 0xFF) as u8) // Add Low order 8 bits
+                        // Decompose the u16 to two u8s and add to vec
+                        pa.attr_value.extend_from_slice(a.to_be_bytes().as_slice());
                     }
                 }
             }
@@ -150,7 +150,7 @@ impl PathAttr {
         pa
     }
 
-    fn build_med(metric: u32) -> Self {
+    pub(crate) fn build_med(metric: u32) -> Self {
         // Builds the optional, non-transitory PA MULTI_EXIT_DISC (MED)
         // RFC 4271, Pg. 19
         let mut pa = Self::new();
