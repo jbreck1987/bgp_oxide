@@ -164,7 +164,14 @@ impl PathAttr {
     }
 
     pub(crate) fn build_local_pref(value: u32) -> Self {
-        todo!()
+        // Builds the well-known LOCAL_PREF PA
+        // RFC 4271, Pg. 19
+        let mut pa = Self::new();
+        pa.set_trans_bit();
+        pa.attr_type_code = 5;
+        pa.attr_len = 4;
+        pa.attr_value.extend_from_slice(value.to_be_bytes().as_slice());
+        pa
     }
 }
 
@@ -288,6 +295,18 @@ mod tests {
         // Path Attr checks
         assert_eq!(cell.borrow().attr_flags, 128);
         assert_eq!(cell.borrow().attr_type_code, 4);
+        assert_eq!(cell.borrow().attr_len, 4);
+        // Value check. Should be 1000 decomposed as a u32
+        assert_eq!(cell.borrow().attr_value, vec![0u8, 0, 3, 232]);
+    }
+    #[test]
+    fn build_local_pref() {
+        let lp = PathAttr::build_local_pref(1000);
+        let cell = RefCell::new(lp);
+
+        // Path Attr checks
+        assert_eq!(cell.borrow().attr_flags, 64);
+        assert_eq!(cell.borrow().attr_type_code, 5);
         assert_eq!(cell.borrow().attr_len, 4);
         // Value check. Should be 1000 decomposed as a u32
         assert_eq!(cell.borrow().attr_value, vec![0u8, 0, 3, 232]);
