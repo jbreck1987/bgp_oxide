@@ -44,13 +44,10 @@ pub(crate) struct PeerSession {
 }
 
 impl PeerSession {
-    pub(crate) fn reset_connect_retry_ctr(&mut self) {
-        // Self-explanatory. Resets the connection
-        // retry counter to 0.
+    pub(crate) fn reset_conn_retry_ctr(&mut self) {
         self.connect_retry_ctr = 0;
     }
-    pub(crate) fn reset_connect_retry_timer(&mut self) {
-        // Resets connection retry timer to 0.
+    pub(crate) fn reset_conn_retry_timer(&mut self) {
         self.connect_retry_timer = 0;
     }
     pub(crate) fn reset_hold_timer(&mut self) {
@@ -175,6 +172,34 @@ mod tests {
         assert_eq!(peer_session.connect_retry_time, 20);
         assert_eq!(peer_session.hold_time, 180);
         assert_eq!(peer_session.keepalive_time, 90);
+    }
+    #[test]
+    fn peer_rst_conn_timer() {
+        let mut peer_session = PeerSessionBuilder::new().build();
+        peer_session.connect_retry_timer = 100;
+        peer_session.reset_conn_retry_timer();
+        assert_eq!(peer_session.connect_retry_timer, 0);
+    }
+    #[test]
+    fn peer_rst_conn_count() {
+        let mut peer_session = PeerSessionBuilder::new().build();
+        peer_session.connect_retry_ctr = 100;
+        peer_session.reset_conn_retry_ctr();
+        assert_eq!(peer_session.connect_retry_ctr, 0);
+    }
+    #[test]
+    fn peer_rst_hold_timer() {
+        let mut peer_session = PeerSessionBuilder::new().build();
+        peer_session.hold_timer = 100;
+        peer_session.reset_hold_timer();
+        assert_eq!(peer_session.hold_timer, 0);
+    }
+    #[test]
+    fn peer_rst_keep_timer() {
+        let mut peer_session = PeerSessionBuilder::new().build();
+        peer_session.keepalive_timer = 100;
+        peer_session.reset_keep_timer();
+        assert_eq!(peer_session.keepalive_timer, 0);
     }
 
 
