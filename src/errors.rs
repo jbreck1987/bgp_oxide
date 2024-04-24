@@ -2,7 +2,17 @@
 // Seems like the easiest way to define these is using enums.
 use std::error::Error;
 use std::fmt::Display;
+use std::convert::From;
 
+
+// Constants
+// ** Notification Error Codes **
+const MSG_HEADER_ERR_VAL: u8 = 1;
+const OPEN_MSG_ERR_VAL: u8 = 2;
+const UPDATE_MSG_ERR_VAL: u8 = 3;
+const HOLD_TIMER_EXP_ERR_VAL: u8 = 4;
+const FSM_ERR_VAL: u8 = 5;
+const CEASE_ERR_VAL: u8 = 6;
 
 // Need to define an error for incorrect Message Subcode values
 #[derive(Debug, PartialEq)]
@@ -19,34 +29,26 @@ impl Error for SubcodeError {}
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum NotifErrorCode {
-    MessageHeaderError(u8),
-    OpenMessageError(u8),
-    UpdateMessageError(u8),
-    HoldTimerExpired(u8),
-    FiniteStateMachineError(u8),
-    Cease(u8),
+    MessageHeaderError,
+    OpenMessageError,
+    UpdateMessageError,
+    HoldTimerExpired,
+    FiniteStateMachineError,
+    Cease
 }
 
-
-impl NotifErrorCode {
-    // To get the default variants, will use these generating functions.
-    pub(crate) fn msg_header_err(subcode: u8) -> Self {
-        Self::MessageHeaderError(1)
-    }
-    pub(crate) fn open_msg_err(subcode: u8) -> Self {
-        Self::OpenMessageError(2)
-    }
-    pub(crate) fn update_msg_err() -> Self {
-         Self::UpdateMessageError(3)       
-    }
-    pub(crate) fn hold_timer_exp() -> Self {
-        Self::HoldTimerExpired(4)
-    }
-    pub(crate) fn fsm_err() -> Self {
-        Self::FiniteStateMachineError(5)
-    }
-    pub(crate) fn cease() -> Self {
-        Self::Cease(6)
+// Using From here as opposed to using generating functions
+// for a simpler API.
+impl From<NotifErrorCode> for u8 {
+    fn from(value: NotifErrorCode) -> Self {
+        match value {
+            NotifErrorCode::MessageHeaderError => MSG_HEADER_ERR_VAL,
+            NotifErrorCode::OpenMessageError => OPEN_MSG_ERR_VAL,
+            NotifErrorCode::UpdateMessageError => UPDATE_MSG_ERR_VAL,
+            NotifErrorCode::HoldTimerExpired => HOLD_TIMER_EXP_ERR_VAL,
+            NotifErrorCode::FiniteStateMachineError => FSM_ERR_VAL,
+            NotifErrorCode::Cease => CEASE_ERR_VAL,
+        }
     }
 }
 
@@ -56,6 +58,9 @@ pub(crate) enum NotifErrorSubCode {
     OpenMessageError(u8),
     UpdateMessageError(u8),
 }
+// Using generating functions here (for now) due to the one to many relationship between subcode type and
+// value. Eventually, this could be replaced with a similar API as above, but it's a lot of work. Eventually,
+// could probably use the builder pattern here to couple subcodes and codes.
 impl NotifErrorSubCode {
     pub(crate) fn msg_header_err(subcode: u8) -> Result<Self, SubcodeError> {
         match subcode {
@@ -167,18 +172,24 @@ mod tests {
     }
     #[test]
     fn build_default_hold_timer_exp() {
-        let err = NotifErrorCode::hold_timer_exp();
-        assert_eq!(err, NotifErrorCode::HoldTimerExpired(4));
+        let val = 4u8;
+        let err = NotifErrorCode::HoldTimerExpired;
+        let converted: u8 = err.into();
+        assert_eq!(val, converted);
     }
     #[test]
     fn build_default_fsm_err() {
-        let err = NotifErrorCode::fsm_err();
-        assert_eq!(err, NotifErrorCode::FiniteStateMachineError(5));
+        let val = 5u8;
+        let err = NotifErrorCode::FiniteStateMachineError;
+        let converted: u8 = err.into();
+        assert_eq!(val, converted);
     }
     #[test]
     fn build_default_cease() {
-        let err = NotifErrorCode::cease();
-        assert_eq!(err, NotifErrorCode::Cease(6));
+        let val = 6u8;
+        let err = NotifErrorCode::Cease;
+        let converted: u8 = err.into();
+        assert_eq!(val, converted);
     }
 
 }
