@@ -14,6 +14,28 @@ const HOLD_TIMER_EXP_ERR_VAL: u8 = 4;
 const FSM_ERR_VAL: u8 = 5;
 const CEASE_ERR_VAL: u8 = 6;
 
+// ** Notification Error Subcodes **
+// Malformed Attribute List
+const MALFORMED_ATTR_LIST: u8 = 1;
+ // Unrecognized Well-Known Attribute
+const UNRECOGNIZED_WK_ATTR: u8 = 2;
+// Missing Well-Known Attribute
+const MISSING_WK_ATTR: u8 = 3;
+// Attribute Flags Error
+const ATTR_FLAGS_ERROR: u8 = 4;
+// Attribute Length Error
+const ATTR_LENGTH_ERROR: u8 = 5;
+// Invalid Origin Attribute
+const INVALID_ORIGIN_ATTR: u8 = 6;
+// Invalid Next Hop Attribute
+const INVALID_NEXT_HOP_ATTR: u8 = 8;
+// Optional Attribute Error
+const OPTIONAL_ATTR_ERROR: u8 = 9;
+// Invalid Network Field
+const INVALID_NETWORK_FIELD: u8 = 10;
+// Malformed AS_PATH
+const MALFORMED_AS_PATH: u8 = 11;
+
 // Need to define an error for incorrect Message Subcode values
 #[derive(Debug, PartialEq)]
 struct SubcodeError(String);
