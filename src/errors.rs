@@ -1,18 +1,16 @@
 // This module will contain all the error types that can be used in the NOTIFICATION message.
 // Seems like the easiest way to define these is using enums.
-use std::error::Error;
-use std::fmt::Display;
 use std::convert::From;
 
 
 // Constants
 // ** Notification Error Codes **
-const MSG_HEADER_ERR_VAL: u8 = 1;
-const OPEN_MSG_ERR_VAL: u8 = 2;
-const UPDATE_MSG_ERR_VAL: u8 = 3;
-const HOLD_TIMER_EXP_ERR_VAL: u8 = 4;
-const FSM_ERR_VAL: u8 = 5;
-const CEASE_ERR_VAL: u8 = 6;
+const MSG_HEADER_ERR: u8 = 1;
+const OPEN_MSG_ERR: u8 = 2;
+const UPDATE_MSG_ERR: u8 = 3;
+const HOLD_TIMER_EXP_ERR: u8 = 4;
+const FSM_ERR: u8 = 5;
+const CEASE_ERR: u8 = 6;
 
 // ** Update Message Error Subcodes **
 
@@ -59,18 +57,6 @@ const BAD_MSG_LEN: u8 = 2;
 // Bad Message Type.
 const BAD_MSG_TYPE: u8 = 3;
 
-// Need to define an error for incorrect Message Subcode values
-#[derive(Debug, PartialEq)]
-struct SubcodeError(String);
-impl Display for SubcodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let SubcodeError(msg) = self;
-        write!(f, "{}", msg)
-    }
-}
-
-impl Error for SubcodeError {}
-
 #[derive(Debug, PartialEq)]
 pub(crate) enum NotifErrorCode {
     MessageHeaderError(MsgHeaderErrSubcode),
@@ -81,6 +67,13 @@ pub(crate) enum NotifErrorCode {
     Cease
 }
 
+impl NotifErrorCode {
+    pub fn as_ref(&self) -> &Self {
+        &self
+    }
+}
+
+
 #[derive(Debug, PartialEq)]
 pub(crate) enum OpenMsgErrSubcode {
     UnsupportedVerNum,
@@ -90,11 +83,23 @@ pub(crate) enum OpenMsgErrSubcode {
     UnacceptableHoldTime,
 }
 
+impl OpenMsgErrSubcode {
+    pub fn as_ref(&self) -> &Self {
+        &self
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub(crate) enum MsgHeaderErrSubcode {
     ConnNotSynced,
     BadMsgLen,
     BadMsgType,
+}
+
+impl MsgHeaderErrSubcode {
+    pub fn as_ref(&self) -> &Self {
+        &self
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -111,59 +116,62 @@ pub(crate) enum UpdateMsgErrSubcode {
     MalformedAsPath,
 }
 
+impl UpdateMsgErrSubcode {
+    pub fn as_ref(&self) -> &Self {
+        &self
+    }
+}
+
 // Using From here as opposed to using generating functions
-// for a simpler API.
-impl From<NotifErrorCode> for u8 {
-    fn from(value: NotifErrorCode) -> Self {
+// for a simpler API when serializing.
+impl From<&NotifErrorCode> for u8 {
+    fn from(value: &NotifErrorCode) -> Self {
         match value {
-            NotifErrorCode::MessageHeaderError(_) => MSG_HEADER_ERR_VAL,
-            NotifErrorCode::OpenMessageError(_) => OPEN_MSG_ERR_VAL,
-            NotifErrorCode::UpdateMessageError(_) => UPDATE_MSG_ERR_VAL,
-            NotifErrorCode::HoldTimerExpired => HOLD_TIMER_EXP_ERR_VAL,
-            NotifErrorCode::FiniteStateMachineError => FSM_ERR_VAL,
-            NotifErrorCode::Cease => CEASE_ERR_VAL,
+            NotifErrorCode::MessageHeaderError(_) => MSG_HEADER_ERR,
+            NotifErrorCode::OpenMessageError(_) => OPEN_MSG_ERR,
+            NotifErrorCode::UpdateMessageError(_) => UPDATE_MSG_ERR,
+            NotifErrorCode::HoldTimerExpired => HOLD_TIMER_EXP_ERR,
+            NotifErrorCode::FiniteStateMachineError => FSM_ERR,
+            NotifErrorCode::Cease => CEASE_ERR,
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub(crate) enum NotifErrorSubCode {
-    MessageHeaderError(u8),
-    OpenMessageError(u8),
-    UpdateMessageError(u8),
+impl From<&OpenMsgErrSubcode> for u8 {
+    fn from(value: &OpenMsgErrSubcode) -> Self {
+        match value {
+            OpenMsgErrSubcode::UnsupportedVerNum => UNSUPPORTED_VER_NUM,
+            OpenMsgErrSubcode::BadPeerAs => BAD_PEER_AS,
+            OpenMsgErrSubcode::BadBgpId => BAD_BGP_ID,
+            OpenMsgErrSubcode::UnsupportedOptParam => UNSUPPORTED_OPT_PARAM,
+            OpenMsgErrSubcode::UnacceptableHoldTime => UNACCEPTABLE_HOLD_TIME
+        }
+    }
 }
-// Using generating functions here (for now) due to the one to many relationship between subcode type and
-// value. Eventually, this could be replaced with a similar API as above, but it's a lot of work. Eventually,
-// could probably use the builder pattern here to couple subcodes and codes.
-impl NotifErrorSubCode {
-    pub(crate) fn msg_header_err(subcode: u8) -> Result<Self, SubcodeError> {
-        match subcode {
-            1 | 2 | 3 => {
-                Ok(Self::MessageHeaderError(subcode))
-            }
-            _ => {
-                Err(SubcodeError(String::from("Valid values are 1, 2, or 3.")))
-            }
+
+impl From<&MsgHeaderErrSubcode> for u8 {
+    fn from(value: &MsgHeaderErrSubcode) -> Self {
+        match value {
+            MsgHeaderErrSubcode::ConnNotSynced => CONN_NOT_SYNCED,
+            MsgHeaderErrSubcode::BadMsgLen => BAD_MSG_LEN,
+            MsgHeaderErrSubcode::BadMsgType => BAD_MSG_TYPE,
         }
     }
-    pub(crate) fn open_msg_err(subcode: u8) -> Result<Self, SubcodeError> {
-        match subcode {
-            1..=6 => {
-                Ok(Self::OpenMessageError(subcode))
-            }
-            _ => {
-                Err(SubcodeError(String::from("Valid values are integers 1 through 6.")))
-            }
-        }
-    }
-    pub(crate) fn update_msg_err(subcode: u8) -> Result<Self, SubcodeError> {
-        match subcode {
-            1..=11 => {
-                Ok(Self::UpdateMessageError(subcode))
-            }
-            _ => {
-                Err(SubcodeError(String::from("Valid values are integers 1 through 11.")))
-            }
+}
+
+impl From<&UpdateMsgErrSubcode> for u8 {
+    fn from(value: &UpdateMsgErrSubcode) -> Self {
+        match value {
+            UpdateMsgErrSubcode::MalformedAttrList => MALFORMED_ATTR_LIST,
+            UpdateMsgErrSubcode::UnrecognizedWkAttr => UNRECOGNIZED_WK_ATTR,
+            UpdateMsgErrSubcode::MissingWkAttr => MISSING_WK_ATTR,
+            UpdateMsgErrSubcode::AttrFlagsError => ATTR_FLAGS_ERROR,
+            UpdateMsgErrSubcode::AttrLengthError => ATTR_LENGTH_ERROR,
+            UpdateMsgErrSubcode::InvalidOriginAttr => INVALID_ORIGIN_ATTR,
+            UpdateMsgErrSubcode::InvalidNextHopAttr => INVALID_NEXT_HOP_ATTR,
+            UpdateMsgErrSubcode::OptionalAttrError => OPTIONAL_ATTR_ERROR,
+            UpdateMsgErrSubcode::InvalidNetworkField => INVALID_NETWORK_FIELD,
+            UpdateMsgErrSubcode::MalformedAsPath => MALFORMED_AS_PATH,
         }
     }
 }
@@ -173,97 +181,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_default_valid_subcode_msg_header_err() {
-        for i in 1u8..=3 {
-            match NotifErrorSubCode::msg_header_err(i) {
-                Ok(err) => {
-                    assert_eq!(err, NotifErrorSubCode::MessageHeaderError(i));
-                }
-                _ => {
-                    panic!("Expected values 1 through 3 to result in an Ok(), got Err()!")
-                }
-            }
-        }
-    }
-    #[test]
-    fn build_default_invalid_subcode_msg_header_err() {
-        match NotifErrorSubCode::msg_header_err(5) {
-            Err(e) => {
-              assert_eq!(e, SubcodeError(String::from("Valid values are 1, 2, or 3.")))
-            }
-            _ => {
-                panic!("Expected Err(), got Ok()!");
-            }
-        }
-    }
-    #[test]
-    fn build_default_valid_subcode_open_msg_err() {
-        for i in 1u8..=6 {
-            match NotifErrorSubCode::open_msg_err(i) {
-                Ok(err) => {
-                    assert_eq!(err, NotifErrorSubCode::OpenMessageError(i));
-                }
-                _ => {
-                    panic!("Expected values 1 through 6 to result in an Ok(), got Err()!")
-                }
-            }
-        }
-    }
-    #[test]
-    fn build_default_invalid_subcode_open_msg_err() {
-        match NotifErrorSubCode::open_msg_err(7) {
-            Err(e) => {
-              assert_eq!(e, SubcodeError(String::from("Valid values are integers 1 through 6.")))
-            }
-            _ => {
-                panic!("Expected Err(), got Ok()!");
-            }
-        }
-    }
-    #[test]
-    fn build_default_valid_subcode_update_msg_err() {
-        for i in 1u8..=11 {
-            match NotifErrorSubCode::update_msg_err(i) {
-                Ok(err) => {
-                    assert_eq!(err, NotifErrorSubCode::UpdateMessageError(i));
-                }
-                _ => {
-                    panic!("Expected values 1 through 11 to result in an Ok(), got Err()!")
-                }
-            }
-        }
-    }
-    #[test]
-    fn build_default_invalid_subcode_update_msg_err() {
-        match NotifErrorSubCode::update_msg_err(12) {
-            Err(e) => {
-              assert_eq!(e, SubcodeError(String::from("Valid values are integers 1 through 11.")))
-            }
-            _ => {
-                panic!("Expected Err(), got Ok()!");
-            }
-        }
-    }
-    #[test]
-    fn build_default_hold_timer_exp() {
+    fn convert_hold_timer_exp() {
         let val = 4u8;
-        let err = NotifErrorCode::HoldTimerExpired;
+        let err = NotifErrorCode::HoldTimerExpired.as_ref();
         let converted: u8 = err.into();
         assert_eq!(val, converted);
     }
     #[test]
-    fn build_default_fsm_err() {
+    fn convert_fsm_err() {
         let val = 5u8;
-        let err = NotifErrorCode::FiniteStateMachineError;
+        let err = NotifErrorCode::FiniteStateMachineError.as_ref();
         let converted: u8 = err.into();
         assert_eq!(val, converted);
     }
     #[test]
-    fn build_default_cease() {
+    fn convert_cease() {
         let val = 6u8;
-        let err = NotifErrorCode::Cease;
+        let err = NotifErrorCode::Cease.as_ref();
         let converted: u8 = err.into();
         assert_eq!(val, converted);
     }
-
+    #[test]
+    fn convert_msg_header_err_and_conn_not_synced() {
+        let code = 1u8;
+        let subcode = 1u8;
+        let err = &NotifErrorCode::MessageHeaderError(MsgHeaderErrSubcode::ConnNotSynced);
+        if let NotifErrorCode::MessageHeaderError(inner_subcode) = err {
+            let inner_converted: u8 = inner_subcode.into();
+            let outer_converted: u8 = err.into();
+            assert_eq!(inner_converted, subcode);
+            assert_eq!(outer_converted, code);
+        }
+    }
 }
