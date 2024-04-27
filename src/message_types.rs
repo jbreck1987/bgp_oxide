@@ -20,11 +20,11 @@ type KeepAlive = Header;
 
 #[derive(Debug)]
 pub struct Header {
-     pub marker: [u8; 16],
+     marker: [u8; 16],
     // Limited to 16 bits
-     pub length: u16,
+     length: u16,
     // Type; limited to 8 bits
-     pub message_type: u8,
+     message_type: u8,
 }
 
 impl Header {
@@ -41,6 +41,15 @@ impl Header {
             length,
             message_type: mtype
         }
+    }
+    pub fn marker(&self) -> &[u8] {
+        self.marker.as_slice()
+    }
+    pub fn length(&self) -> u16 {
+        self.length
+    }
+    pub fn message_type(&self) -> u8 {
+        self.message_type
     }
 }
 pub enum MessageType {
@@ -108,7 +117,7 @@ impl Notification {
         self.err_subcode
     }
     pub fn data(&self) -> &[u8] {
-        self.data.as_ref()
+        self.data.as_slice()
     }
 }
 struct Tlv { // These will be constructed on the fly
