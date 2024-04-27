@@ -14,7 +14,8 @@ const HOLD_TIMER_EXP_ERR_VAL: u8 = 4;
 const FSM_ERR_VAL: u8 = 5;
 const CEASE_ERR_VAL: u8 = 6;
 
-// ** Notification Error Subcodes **
+// ** Update Message Error Subcodes **
+
 // Malformed Attribute List
 const MALFORMED_ATTR_LIST: u8 = 1;
  // Unrecognized Well-Known Attribute
@@ -36,6 +37,28 @@ const INVALID_NETWORK_FIELD: u8 = 10;
 // Malformed AS_PATH
 const MALFORMED_AS_PATH: u8 = 11;
 
+// ** Open Message Subcodes **
+
+// Unsupported Version Number.
+const UNSUPPORTED_VER_NUM: u8 = 1;
+// Bad Peer AS.
+const BAD_PEER_AS: u8 = 2;
+// Bad BGP Identifier.
+const BAD_BGP_ID: u8 = 3;
+// Unsupported Optional Parameter.
+const UNSUPPORTED_OPT_PARAM: u8 = 4;
+// Unacceptable Hold Time.
+const UNACCEPTABLE_HOLD_TIME: u8 = 6;
+
+// ** Message Header Error Subcodes **
+
+// Connection Not Synchronized.
+const CONN_NOT_SYNCED: u8 = 1;
+// Bad Message Length.
+const BAD_MSG_LEN: u8 = 2;
+// Bad Message Type.
+const BAD_MSG_TYPE: u8 = 3;
+
 // Need to define an error for incorrect Message Subcode values
 #[derive(Debug, PartialEq)]
 struct SubcodeError(String);
@@ -48,15 +71,44 @@ impl Display for SubcodeError {
 
 impl Error for SubcodeError {}
 
-
 #[derive(Debug, PartialEq)]
 pub(crate) enum NotifErrorCode {
-    MessageHeaderError,
-    OpenMessageError,
-    UpdateMessageError,
+    MessageHeaderError(MsgHeaderErrSubcode),
+    OpenMessageError(OpenMsgErrSubcode),
+    UpdateMessageError(UpdateMsgErrSubcode),
     HoldTimerExpired,
     FiniteStateMachineError,
     Cease
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum OpenMsgErrSubcode {
+    UnsupportedVerNum,
+    BadPeerAs,
+    BadBgpId,
+    UnsupportedOptParam,
+    UnacceptableHoldTime,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum MsgHeaderErrSubcode {
+    ConnNotSynced,
+    BadMsgLen,
+    BadMsgType,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum UpdateMsgErrSubcode {
+    MalformedAttrList,
+    UnrecognizedWkAttr,
+    MissingWkAttr,
+    AttrFlagsError,
+    AttrLengthError,
+    InvalidOriginAttr,
+    InvalidNextHopAttr,
+    OptionalAttrError,
+    InvalidNetworkField,
+    MalformedAsPath,
 }
 
 // Using From here as opposed to using generating functions
@@ -64,9 +116,9 @@ pub(crate) enum NotifErrorCode {
 impl From<NotifErrorCode> for u8 {
     fn from(value: NotifErrorCode) -> Self {
         match value {
-            NotifErrorCode::MessageHeaderError => MSG_HEADER_ERR_VAL,
-            NotifErrorCode::OpenMessageError => OPEN_MSG_ERR_VAL,
-            NotifErrorCode::UpdateMessageError => UPDATE_MSG_ERR_VAL,
+            NotifErrorCode::MessageHeaderError(_) => MSG_HEADER_ERR_VAL,
+            NotifErrorCode::OpenMessageError(_) => OPEN_MSG_ERR_VAL,
+            NotifErrorCode::UpdateMessageError(_) => UPDATE_MSG_ERR_VAL,
             NotifErrorCode::HoldTimerExpired => HOLD_TIMER_EXP_ERR_VAL,
             NotifErrorCode::FiniteStateMachineError => FSM_ERR_VAL,
             NotifErrorCode::Cease => CEASE_ERR_VAL,
