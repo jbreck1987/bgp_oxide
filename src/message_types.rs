@@ -277,4 +277,21 @@ mod tests {
         assert!(msg.opt_params.is_empty());
         assert_eq!(msg.opt_params_len, 0);
     }
+    
+    #[test]
+    fn build_open_with_opt_params() {
+        let param1 = Tlv::new(1, vec![1, 1, 1, 1, 1, 1]);
+        let param2 = Tlv::new(1, vec![1]);
+        let msg = OpenBuilder::new(4, 65000, 180, 1)
+            .opt_param(param1)
+            .opt_param(param2)
+            .build();
+        
+        assert_eq!(msg.version, 4);
+        assert_eq!(msg.my_as, 65000);
+        assert_eq!(msg.holdtime, 180);
+        assert_eq!(msg.bgp_id, 1);
+        assert_eq!(msg.opt_params.len(), 2);
+        assert_eq!(msg.opt_params_len, 7);
+    }
 }
