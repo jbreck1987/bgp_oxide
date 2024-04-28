@@ -2,6 +2,12 @@
 // Since this is an RFC based protocol, the serialization will be home-rolled for accuracy as opposed
 // to using Serde.
 
+
+// GLOBAL TO-DOs:
+// 1. Make sure that all arbitrary "puts" into the BytesMut types are Big Endian!
+// The "put_<bit_size>" methods already enforce this.
+// 2. Add tests for OpenSerializer
+
 use crate::message_types::{
     Header,
     Open,
@@ -61,6 +67,41 @@ impl NotificationSerializer {
         self.buf
     }
 }
+struct OpenSerializer {
+    msg: Open,
+    buf: BytesMut,
+}
+
+impl OpenSerializer {
+    pub fn new(msg: Open) -> Self {
+        let params_len = msg.opt_params_len();
+        Self {
+            msg,
+            buf: BytesMut::with_capacity(10 + params_len as usize)
+        }
+    }
+    pub fn serialize(mut self) -> BytesMut {
+        self.buf.put_u8(self.msg.version());
+        self.buf.put_u16(self.msg.my_as());
+        self.buf.put_u32(self.msg.bgp_id());
+        self.buf.put_u8(self.msg.opt_params_len());
+
+        // Check to make sure there are any optional parameter Tlvs
+        // to serialize
+        match self.msg.opt_params_len() {
+            0 => self.buf,
+            _ => {
+                for tlv in self.msg.opt_params() {
+                    self.buf.put_u8(tlv.param_type());
+                    self.buf.put_u8(tlv.param_length());
+                    self.buf.put(tlv.param_value());
+                }
+                self.buf
+            }
+        }
+    }
+    
+}
 
 
 #[cfg(test)]
@@ -83,5 +124,13 @@ mod tests {
         let correct = vec![2u8, 2, 0, 0, 0, 0, 0, 0, 0, 1];
         let serialized: Vec<_> = serializer.serialize().into();
         assert_eq!(correct, serialized);
+    }
+    #[test]
+    fn test_serialize_open_no_params() {
+        todo!()
+    }
+    #[test]
+    fn test_serialize_open_with_params() {
+        todo!()
     }
 }
