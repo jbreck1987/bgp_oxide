@@ -99,12 +99,22 @@ impl OpenBuilder {
         self
     }
     pub fn build(mut self) -> Open {
+        let opt_len = match self.opt_params.len() {
+            0 => 0, // If no optional params added, length is 0
+            _ => { // otherwise, sum the lengths (in octets) for each TLV in the list
+                self.opt_params
+                .iter()
+                .map(|tlv| tlv.param_length)
+                .sum()
+            }
+        };
+
         Open {
             version: self.version,
             my_as: self.my_as,
             holdtime: self.holdtime,
             bgp_id: self.bgp_id,
-            opt_params_len: self.opt_params.len() as u8,
+            opt_params_len: opt_len,
             opt_params: self.opt_params,
         }
     }
@@ -158,7 +168,7 @@ impl Notification {
         self.data.as_slice()
     }
 }
-struct Tlv { // These will be constructed on the fly
+pub(crate) struct Tlv { // These will be constructed on the fly
     param_type: u8,
     param_length: u8,
     param_value: Vec<u8>,
