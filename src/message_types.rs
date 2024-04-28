@@ -206,6 +206,17 @@ impl Tlv {
             param_value,
         }
     }
+
+    pub fn param_type(&self) -> u8 {
+        self.param_type
+    }
+    pub fn param_length(&self) -> u8 {
+        self.param_length
+    }
+    pub fn param_value(&self) -> &[u8] {
+        self.param_value.as_slice()
+
+    }
 }
 
 struct Route {
