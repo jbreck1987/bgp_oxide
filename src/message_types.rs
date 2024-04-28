@@ -72,6 +72,44 @@ pub (crate) struct Open {
     // are inhomogenous in length.
     opt_params: Vec<Tlv>,
 }
+
+pub(crate) struct OpenBuilder {
+    version: u8,
+    my_as: u16,
+    holdtime: u16,
+    bgp_id: u32,
+    opt_params_len: u8,
+    opt_params: Vec<Tlv>,
+
+}
+
+impl OpenBuilder {
+    pub fn new(bgp_ver: u8, my_as: u16, holdtime: u16, bgp_id: u32) -> Self {
+        Self {
+            version: bgp_ver,
+            my_as,
+            holdtime,
+            bgp_id,
+            opt_params_len: 0,
+            opt_params: Vec::new(),
+        }
+    }
+    pub fn opt_param(mut self, tlv: Tlv) -> Self {
+        self.opt_params.push(tlv);
+        self
+    }
+    pub fn build(mut self) -> Open {
+        Open {
+            version: self.version,
+            my_as: self.my_as,
+            holdtime: self.holdtime,
+            bgp_id: self.bgp_id,
+            opt_params_len: self.opt_params.len() as u8,
+            opt_params: self.opt_params,
+        }
+    }
+}
+
 pub (crate) struct Update {
     withdrawn_routes_len: u16,
     withdrawn_routes: Vec<Route>,
@@ -190,7 +228,7 @@ mod tests {
         assert_eq!(cell.borrow().message_type, 4u8);
     }
     #[test]
-    fn build_tlv() {
+    fn new_tlv() {
         let tlv = Tlv::new(2, vec![9, 8]);
         let cell = RefCell::new(tlv);
         assert_eq!(cell.borrow().param_length, 2);
@@ -217,5 +255,16 @@ mod tests {
         let mut data: [u8; 8] = [0; 8];
         data.copy_from_slice(msg.data());
         assert_eq!(usize::from_be_bytes(data), 1);
+    }
+
+    #[test]
+    fn build_open_no_opt_param() {
+        let msg = OpenBuilder::new(4, 65000, 180, 1).build();
+        assert_eq!(msg.version, 4);
+        assert_eq!(msg.my_as, 65000);
+        assert_eq!(msg.holdtime, 180);
+        assert_eq!(msg.bgp_id, 1);
+        assert!(msg.opt_params.is_empty());
+        assert_eq!(msg.opt_params_len, 0);
     }
 }
