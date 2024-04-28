@@ -73,6 +73,31 @@ pub (crate) struct Open {
     opt_params: Vec<Tlv>,
 }
 
+impl Open {
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+    pub fn my_as(&self) -> u16 {
+        self.my_as
+    }
+    pub fn hold_time(&self) -> u16 {
+        self.holdtime
+    }
+    pub fn bgp_id(&self) -> u32 {
+        self.bgp_id
+    }
+    pub fn opt_params_slice(&self) -> &[Tlv] {
+        self.opt_params.as_slice()
+    }
+    pub fn opt_params(self) -> Vec<Tlv> {
+        self.opt_params
+    }
+    pub fn opt_params_len(&self) -> u8 {
+        self.opt_params_len
+    }
+
+}
+
 pub(crate) struct OpenBuilder {
     version: u8,
     my_as: u16,
@@ -286,7 +311,7 @@ mod tests {
             .opt_param(param1)
             .opt_param(param2)
             .build();
-        
+
         assert_eq!(msg.version, 4);
         assert_eq!(msg.my_as, 65000);
         assert_eq!(msg.holdtime, 180);
