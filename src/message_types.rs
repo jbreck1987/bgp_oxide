@@ -129,7 +129,7 @@ impl OpenBuilder {
             _ => { // otherwise, sum the lengths (in octets) for each TLV in the list
                 self.opt_params
                 .iter()
-                .map(|tlv| tlv.param_length)
+                .map(|tlv| 2 + tlv.param_length) // constant 2 for param len and type fields
                 .sum()
             }
         };
@@ -328,6 +328,6 @@ mod tests {
         assert_eq!(msg.holdtime, 180);
         assert_eq!(msg.bgp_id, 1);
         assert_eq!(msg.opt_params.len(), 2);
-        assert_eq!(msg.opt_params_len, 7);
+        assert_eq!(msg.opt_params_len, 11);
     }
 }
