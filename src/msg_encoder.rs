@@ -83,6 +83,7 @@ impl OpenSerializer {
     pub fn serialize(mut self) -> BytesMut {
         self.buf.put_u8(self.msg.version());
         self.buf.put_u16(self.msg.my_as());
+        self.buf.put_u16(self.msg.hold_time());
         self.buf.put_u32(self.msg.bgp_id());
         self.buf.put_u8(self.msg.opt_params_len());
 
@@ -106,6 +107,8 @@ impl OpenSerializer {
 
 #[cfg(test)]
 mod tests {
+    use crate::message_types::OpenBuilder;
+
     use super::*;
 
     #[test]
@@ -127,9 +130,20 @@ mod tests {
     }
     #[test]
     fn test_serialize_open_no_params() {
-        todo!()
+        let msg = OpenBuilder::new(4, 65000, 180, 1).build();
+        let serializer = OpenSerializer::new(msg);
+
+        // Build the correct byte array
+        let mut correct: Vec<u8> = Vec::new();
+        correct.push(4u8);
+        correct.extend_from_slice(65000u16.to_be_bytes().as_slice());
+        correct.extend_from_slice(180u16.to_be_bytes().as_slice());
+        correct.extend_from_slice(1u32.to_be_bytes().as_slice());
+        correct.push(0u8);
+
+        let serialized: Vec<_> = serializer.serialize().into();
+        assert_eq!(correct, serialized);
     }
-    #[test]
     fn test_serialize_open_with_params() {
         todo!()
     }
