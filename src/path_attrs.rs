@@ -5,14 +5,12 @@
 // selectively serialize based off the State.
 
 use std::{
-    cell::RefCell,
-    error::Error,
-    fmt::Display,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    cell::RefCell, error::Error, fmt::Display, mem::size_of, net::{IpAddr, Ipv4Addr, Ipv6Addr}
 };
 
 use crate::message_types::{
     ByteLen,
+    SerialVec,
 };
 
 // Implement a basic PA error
@@ -45,12 +43,6 @@ pub(crate) trait PAttr: ByteLen {
     }
 }
 
-enum AsSegment {
-    // Used when building the AS_PATH PA. RFC 4721, Pg. 18
-    // The vec holds ASes.
-    AsSequence(Vec<u16>),
-    AsSet(Vec<u16>)
-}
 ////impl PathAttr {
 //    fn new() -> Self {
 //        // Returns a bare PathAttr instance. This isn't public because all PAs should have
@@ -284,6 +276,60 @@ impl PaBuilder<PaStd> for Origin {
             vec![origin_val].as_slice(),
         );
         pa.set_trans_bit();
+        pa
+    }
+}
+
+pub(crate) struct AsPath {
+    attr_value: Vec<u8>
+}
+enum AsSegment {
+    // Used when building the AS_PATH PA. RFC 4721, Pg. 18
+    // The vec holds ASes.
+    AsSequence(Vec<u16>),
+    AsSet(Vec<u16>)
+}
+impl ByteLen for AsSegment {
+    fn byte_len(&self) -> usize {
+        match self {
+            AsSegment::AsSequence(v) => size_of::<u16>() * v.len(),
+            AsSegment::AsSet(v) => size_of::<u16>() * v.len()
+        }
+    }
+}
+impl PaBuilder<PaStd> for AsPath {
+    fn build(&mut self, as_segs: Vec<AsSegment>) -> PathAttr<PaStd> {
+        // Need to decompose the Vec<AsSegments> into a Vec<u8> to conform
+        // to standard and store in local vec.
+        // TO-DO: Try to use functional style here
+        self.attr_value = Vec::new();
+        for seg in as_segs {
+            match seg {
+                AsSegment::AsSequence(ases) => {
+                    // AS_SEQUENCE segment type is 2
+                    self.attr_value.push(2);
+                    self.attr_value.push(ases.len() as u8);
+                    for a in ases {
+                        // Decompose the u16 to two u8s and add to vec
+                        self.attr_value.extend_from_slice(a.to_be_bytes().as_slice());
+                    }
+                },
+                AsSegment::AsSet(ases) => {
+                    // AS_SET segment type is 1
+                    self.attr_value.push(1);
+                    self.attr_value.push(ases.len() as u8);
+                    for a in ases {
+                        // Decompose the u16 to two u8s and add to vec
+                        self.attr_value.extend_from_slice(a.to_be_bytes().as_slice());
+                    }
+                }
+            }
+        }
+        // Now can build the PA and return
+        let mut pa: PathAttr<PaStd> = PathAttr::new(
+            2,
+            self.attr_value.len(),
+            self.attr_value.as_slice());
         pa
     }
 }
