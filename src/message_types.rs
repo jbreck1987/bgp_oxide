@@ -1,14 +1,16 @@
 use std::{
     cell::RefCell,
     convert::From,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
-use crate::errors::{
+use bytes::Buf;
+
+use crate::{errors::{
+    MsgHeaderErrSubcode,
     NotifErrorCode,
     OpenMsgErrSubcode,
-    UpdateMsgErrSubcode,
-    MsgHeaderErrSubcode,
-};
-use crate::path_attrs;
+    UpdateMsgErrSubcode},
+    path_attrs::PathAttr};
 
 // Definitions for the basic message types in BGP.
 static OPEN_VALUE: u8 = 1;
@@ -145,16 +147,7 @@ impl OpenBuilder {
     }
 }
 
-pub (crate) struct Update {
-    withdrawn_routes_len: u16,
-    withdrawn_routes: Vec<Route>,
-    total_path_attr_len: u16,
-    // Using trait object since can have a mixture of normal and extended Path Attributes here.
-    path_attrs: Vec<Box::<dyn path_attrs::PAttr>>,
-    // Only difference from withdrawn routes is that the PAs apply to the NLRI, while the withdrawn
-    // routes only need prefix info to be removed.
-    nlri: Vec<Route>,
-}
+
 pub(crate) struct Notification {
     // Notification Error Code
     err_code: u8,
@@ -219,23 +212,164 @@ impl Tlv {
     }
 }
 
-struct Route {
-    // Could potentially use the crate for IpAddressing, but wouuld need this to stay
-    // general such that routes for non-IP address families can be supported. Need to check to the
-    // spec to see how NLRI are handled. TBD...
-    length: usize,
-    prefix: Vec<u8>,
+
+// Implementing this trait such that all serializable custom types that'll be held in containers
+// must be able to return the size of all the it's primitive fields in numbers of bytes.
+// This will be useful when computing the "total length of a field" that appears often in the
+// RFC. This is NOT the same as size_of since we want deterministic functionality across platforms.
+pub(crate) trait ByteLen {
+    fn byte_len(&self) -> usize;
+}
+
+// Now will use the NewType pattern to create a vec based container with a new byte_len method
+// that easily allows one to get the length of the Vec of custom serializable types in bytes.
+pub(crate) struct SerialVec<T>
+{
+    inner: Vec<T>
+}
+
+impl<T> SerialVec<T> {
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+    pub fn new() -> Self {
+        Self {
+            inner: Vec::new()
+        }
+    }
+    pub fn to_vec(self) -> Vec<T> {
+        self.inner
+    }
+}
+
+impl<T: ByteLen> SerialVec<T> {
+    pub fn byte_len(&self) -> usize {
+        self.inner
+        .iter()
+        .map(| x | x.byte_len())
+        .sum()
+    }
+}
+
+impl<T: Clone> SerialVec<T> {
+    pub fn extend_from_slice(&mut self, other: &[T]) {
+        self.inner.extend_from_slice(other)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Route {
+    // RFC 4271 explicitly states that the prefixes are IP addresses.
+    // Will use the std::net package for this
+    length: u8,
+    prefix: IpAddr,
 }
 
 impl Route {
-    fn new(length: usize, prefix: Vec<u8>) -> Self {
+    pub fn new(length: u8, prefix: IpAddr) -> Self {
         Self {
             length,
             prefix,
         }
     }
+    pub fn length(&self) -> u8 {
+        self.length
+    }
+    pub fn prefix(&self) -> IpAddr {
+        self.prefix
+    }
 }
 
+impl ByteLen for Route {
+    fn byte_len(&self) -> usize {
+        // +1 for length field
+        match self.prefix {
+            IpAddr::V4(_) => 1 + 4,
+            IpAddr::V6(_) => 1 + 16,
+        }
+    }
+    
+}
+
+// Struct to couple Routes with PAs. Will be used in the Builder for Update messages.
+pub(crate) struct Nlri {
+    routes: SerialVec<Route>,
+    // Need the PAs to implement ByteLen to store in a SerialVec
+    // Such that we can get the benefit of using byte_len(). Using an Rc
+    // to get Clone.
+    // TO-DO: Maybe rework this to consume routes since this could potentially be large
+    // amount of data. PAs are tied to all routes, so no need to worry about Cloning.
+    path_attrs: SerialVec<PathAttr>
+}
+
+impl Nlri {
+    pub fn new(routes: &[Route], pas: &[PathAttr]) -> Self {
+        let mut this_routes: SerialVec<Route> = SerialVec::new();
+        this_routes.extend_from_slice(routes);
+
+        let mut this_pas: SerialVec<PathAttr> = SerialVec::new();
+        this_pas.extend_from_slice(pas);
+        Self {
+            routes: this_routes,
+            path_attrs: this_pas
+        }
+    }
+    
+}
+
+pub (crate) struct Update {
+    withdrawn_routes_len: u16,
+    withdrawn_routes: Option<SerialVec<Route>>,
+    total_path_attr_len: u16,
+    // Using trait object since can have a mixture of normal and extended Path Attributes here.
+    path_attrs: Option<SerialVec<PathAttr>>,
+    // Only difference from withdrawn routes is that the PAs apply to the NLRI, while the withdrawn
+    // routes only need prefix info to be removed.
+    nlri: Option<Vec<Route>>,
+}
+
+pub(crate) struct UpdateBuilder {
+    withdrawn_routes_len: u16,
+    withdrawn_routes: Option<SerialVec<Route>>,
+    total_path_attr_len: u16,
+    path_attrs: Option<SerialVec<PathAttr>>,
+    nlri: Option<SerialVec<Route>>,
+}
+
+impl UpdateBuilder {
+    pub fn new() -> Self {
+        Self {
+            withdrawn_routes_len: 0,
+            withdrawn_routes: None,
+            total_path_attr_len: 0,
+            path_attrs: None,
+            nlri: None,
+        }
+    }
+    pub fn withdrawn_routes(mut self, routes: SerialVec<Route>) -> Self {
+        match routes.len() {
+            // If len of routes is 0, erroneous use of the method, just
+            // return self as default.
+            0 => self,
+            _ => {
+                self.withdrawn_routes_len = routes.byte_len() as u16;
+                self.withdrawn_routes = Some(routes);
+                self
+            }
+        }
+    }
+    pub fn nlri(mut self, nlri: Nlri) -> Self {
+        // Again, if len of either data member is 0,
+        // this is erroneous. Will return a default update
+        match (nlri.routes.len(), nlri.path_attrs.len()) {
+            (0, _) | (_, 0) => self,
+            _ => {
+                todo!()
+                //self.total_path_attr_len = nlri.path_attrs.byte_len()
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
