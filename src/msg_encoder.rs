@@ -13,6 +13,7 @@ use crate::message_types::{
     Open,
     Notification,
     Update,
+    Tlv,
     MessageType,
 };
 
@@ -144,7 +145,27 @@ mod tests {
         let serialized: Vec<_> = serializer.serialize().into();
         assert_eq!(correct, serialized);
     }
+    #[test]
     fn test_serialize_open_with_params() {
-        todo!()
+        let param1 = Tlv::new(1, vec![1, 1, 1, 1, 1, 1]);
+        let param2 = Tlv::new(1, vec![1]);
+        let msg = OpenBuilder::new(4, 65000, 180, 1)
+            .opt_param(param1)
+            .opt_param(param2)
+            .build();
+        let serializer = OpenSerializer::new(msg);
+        // Build the correct byte array
+        let mut correct: Vec<u8> = Vec::new();
+        correct.push(4u8);
+        correct.extend_from_slice(65000u16.to_be_bytes().as_slice());
+        correct.extend_from_slice(180u16.to_be_bytes().as_slice());
+        correct.extend_from_slice(1u32.to_be_bytes().as_slice());
+        correct.push(11u8);
+        correct.push(1u8);
+        correct.push(6u8);
+        correct.extend_from_slice(vec![1u8,1,1,1,1,1].as_slice());
+        correct.push(1u8);
+        correct.push(1u8);
+        correct.push(1u8);
     }
 }
