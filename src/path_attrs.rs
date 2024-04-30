@@ -51,18 +51,7 @@ pub(crate) trait PAttr {
 
 
 //
-//    pub(crate) fn build_med(metric: u32) -> Self {
-//        // Builds the optional, non-transitory PA MULTI_EXIT_DISC (MED)
-//        // RFC 4271, Pg. 19
-//        let mut pa = Self::new();
-//        pa.set_opt_bit();
-//        pa.attr_type_code = 4;
-//        pa.attr_len = 4;
-//
-//        // Need to decompose the u32 to bytes
-//        pa.attr_value.extend_from_slice(metric.to_be_bytes().as_slice());
-//        pa
-//    }
+
 //
 //    pub(crate) fn build_local_pref(value: u32) -> Self {
 //        // Builds the well-known LOCAL_PREF PA
@@ -119,7 +108,6 @@ pub(crate) struct PathAttr {
     attr_value: Vec<u8>,
 }
 
-// Both states will implement these methods the same
 impl PAttr for PathAttr {
     fn set_opt_bit(&mut self) {
         // Set MSB (network byte order) to 1
@@ -307,7 +295,41 @@ impl PaBuilder for PathAttrBuilder<NextHop> {
     }
 }
 
+// ** MED **
 
+struct Med;
+impl PathAttrBuilder<Med> {
+    pub fn metric(mut self, val: u32) -> Self {
+        // Builds the optional, non-transitory PA MULTI_EXIT_DISC (MED)
+        // RFC 4271, Pg. 19
+
+        // Decompose the u32 into bytes per spec
+        self.attr_value.extend_from_slice(val.to_be_bytes().as_slice());
+        self
+    }
+}
+impl PaBuilder for PathAttrBuilder<Med> {
+    fn build(self) -> PathAttr {
+        let mut pa = PathAttr::new(
+            4,
+            PathAttrLen::Std(4),
+            self.attr_value);
+        pa.set_opt_bit();
+        pa
+    }
+    
+}
+//    pub(crate) fn build_med(metric: u32) -> Self {
+
+//        let mut pa = Self::new();
+//        pa.set_opt_bit();
+//        pa.attr_type_code = 4;
+//        pa.attr_len = 4;
+//
+//        // Need to decompose the u32 to bytes
+//        pa.attr_value.extend_from_slice(metric.to_be_bytes().as_slice());
+//        pa
+//    }
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,19 +403,19 @@ mod tests {
             panic!()
         }
     }
+
+    #[test]
+    fn build_med() {
+        let med = PathAttrBuilder::<Med>::new().metric(1000u32).build();
+
+        // Path Attr checks
+        assert_eq!(med.attr_flags, 128);
+        assert_eq!(med.attr_type_code, 4);
+        assert_eq!(med.attr_len, PathAttrLen::Std(4));
+        // Value check. Should be 1000 decomposed as a u8
+        assert_eq!(med.attr_value, vec![0u8, 0, 3, 232]);
+    }
 }
-//    #[test]
-//    fn build_med() {
-//        let med = PathAttr::build_med(1000);
-//        let cell = RefCell::new(med);
-//
-//        // Path Attr checks
-//        assert_eq!(cell.borrow().attr_flags, 128);
-//        assert_eq!(cell.borrow().attr_type_code, 4);
-//        assert_eq!(cell.borrow().attr_len, 4);
-//        // Value check. Should be 1000 decomposed as a u8
-//        assert_eq!(cell.borrow().attr_value, vec![0u8, 0, 3, 232]);
-//    }
 //    #[test]
 //    fn build_local_pref() {
 //        let lp = PathAttr::build_local_pref(1000);
