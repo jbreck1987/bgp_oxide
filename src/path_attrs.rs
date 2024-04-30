@@ -5,16 +5,11 @@
 // selectively serialize based off the State.
 
 use std::{
-    cell::RefCell,
     error::Error,
     fmt::Display,
     marker::PhantomData,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     str::FromStr,
-};
-
-use crate::message_types::{
-    SerialVec,
 };
 
 // Implement a basic PA error
