@@ -5,11 +5,15 @@
 // selectively serialize based off the State.
 
 use std::{
-    cell::RefCell, error::Error, fmt::Display, marker::PhantomData, mem::size_of, net::{IpAddr, Ipv4Addr, Ipv6Addr}
+    cell::RefCell,
+    error::Error,
+    fmt::Display,
+    marker::PhantomData,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    str::FromStr,
 };
 
 use crate::message_types::{
-    ByteLen,
     SerialVec,
 };
 
@@ -303,24 +307,6 @@ impl PaBuilder for PathAttrBuilder<NextHop> {
     }
 }
 
-//    pub(crate) fn build_next_hop(next_hop: IpAddr) -> Self {
-//        // Builds the well-known, mandatory NEXT_HOP PA; RFC 4271, Pg. 19
-//        // Enabling both v4 and v6 transport
-//        let mut pa = Self::new();
-//        pa.set_trans_bit();
-//        pa.attr_type_code = 3;
-//        match next_hop {
-//            IpAddr::V4(inner_addr) => {
-//                pa.attr_len = 4;
-//                pa.attr_value.extend_from_slice(inner_addr.octets().as_slice())
-//            },
-//            IpAddr::V6(inner_addr) => {
-//                pa.attr_len = 16;
-//                pa.attr_value.extend_from_slice(inner_addr.octets().as_slice())
-//            }
-//        };
-//        pa
-//    }
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,21 +347,21 @@ mod tests {
         assert_eq!(aspath.attr_value[10], 118); // MSB of second AS
         assert_eq!(aspath.attr_value[11], 229); // LSB of second AS
     }
+
+    #[test]
+    fn build_next_hop_v4() {
+        let ip = IpAddr::V4(Ipv4Addr::from_str("192.168.0.0").unwrap());
+        let n_hop = PathAttrBuilder::<NextHop>::new().next_hop(ip).build();
+
+        // Path Attr checks
+        assert_eq!(n_hop.attr_flags, 64u8);
+        assert_eq!(n_hop.attr_type_code, 3u8);
+        assert_eq!(n_hop.attr_len, PathAttrLen::Std(4));
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(n_hop.attr_value.as_slice());
+        assert_eq!(Ipv4Addr::from(bytes), Ipv4Addr::from_str("192.168.0.0").unwrap());
+    }
 }
-//    #[test]
-//    fn build_next_hop_v4() {
-//        let ip = Ipv4Addr::from_str("192.168.0.0").unwrap();
-//        let n_hop = PathAttr::build_next_hop(IpAddr::V4(ip));
-//        let cell = RefCell::new(n_hop);
-//
-//        // Path Attr checks
-//        assert_eq!(cell.borrow().attr_flags, 64u8);
-//        assert_eq!(cell.borrow().attr_type_code, 3u8);
-//        assert_eq!(cell.borrow().attr_len, 4u8);
-//        let mut bytes = [0u8; 4];
-//        bytes.copy_from_slice(cell.borrow().attr_value.as_slice());
-//        assert_eq!(Ipv4Addr::from(bytes), Ipv4Addr::from_str("192.168.0.0").unwrap());
-//    }
 //    #[test]
 //    fn build_next_hop_v6() {
 //        // Using Ipv6 Neighbor Solicitation dest address (multicast) because why not?
