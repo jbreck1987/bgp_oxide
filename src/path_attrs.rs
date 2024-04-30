@@ -43,90 +43,8 @@ pub(crate) trait PAttr {
     }
 }
 
-////impl PathAttr {
-//    fn new() -> Self {
-//        // Returns a bare PathAttr instance. This isn't public because all PAs should have
-//        // a function that builds them as opposed to manually creating them on the fly.
-//        // new() will only be used privately.
-//        Self {
-//            attr_flags: 0,
-//            attr_type_code: 0,
-//            attr_len: 0,
-//            attr_value: Vec::new(),
-//        }
-//    }
-//    pub(crate) fn build_origin(value: u8) -> Result<Self, PathAttrError> {
-//        // Builds the well-known, mandatory ORIGIN PA
-//        // RFC 4271; Pg. 18
-//        match value {
-//            0 | 1 | 2 => {
-//                // Build new PA instance
-//                let mut pa  = Self::new();
-//                pa.set_trans_bit();
-//                pa.attr_type_code = 1;
-//                pa.attr_len = 1;
-//                pa.attr_value.push(value);
-//                Ok(pa)
-//            }
-//            _ => {
-//                Err(PathAttrError(String::from("Invalid value, valid values are 0, 1, 2.")))
-//            }
-//        }
-//    }
-//    pub(crate) fn build_as_path(as_segs: Vec<AsSegment>) -> Self {
-//        // Builds the well-known, mandatory AS_PATH PA, RFC 4271, Pg. 18
-//        // This function assumes the given sequence of AS Segments has been constructed
-//        // properly.
-//        let mut pa = Self::new();
-//        pa.attr_type_code = 2;
-//        pa.set_trans_bit();
-//
-//        // Now need to construct the attribute value as a sequence of AS Segments, each of which
-//        // are TLVs that will be flattened into a vec of u8s
-//        for seg in as_segs {
-//            match seg {
-//                AsSegment::AsSequence(ases) => {
-//                    // AS_SEQUENCE segment type is 2
-//                    pa.attr_value.push(2);
-//                    pa.attr_value.push(ases.len() as u8);
-//                    for a in ases {
-//                        // Decompose the u16 to two u8s and add to vec
-//                        pa.attr_value.extend_from_slice(a.to_be_bytes().as_slice());
-//                    }
-//                },
-//                AsSegment::AsSet(ases) => {
-//                    // AS_SET segment type is 1
-//                    pa.attr_value.push(1);
-//                    pa.attr_value.push(ases.len() as u8);
-//                    for a in ases {
-//                        // Decompose the u16 to two u8s and add to vec
-//                        pa.attr_value.extend_from_slice(a.to_be_bytes().as_slice());
-//                    }
-//                }
-//            }
-//        }
-//        pa.attr_len = pa.attr_value.len() as u8;
-//        pa
-//        
-//    }
-//    pub(crate) fn build_next_hop(next_hop: IpAddr) -> Self {
-//        // Builds the well-known, mandatory NEXT_HOP PA; RFC 4271, Pg. 19
-//        // Enabling both v4 and v6 transport
-//        let mut pa = Self::new();
-//        pa.set_trans_bit();
-//        pa.attr_type_code = 3;
-//        match next_hop {
-//            IpAddr::V4(inner_addr) => {
-//                pa.attr_len = 4;
-//                pa.attr_value.extend_from_slice(inner_addr.octets().as_slice())
-//            },
-//            IpAddr::V6(inner_addr) => {
-//                pa.attr_len = 16;
-//                pa.attr_value.extend_from_slice(inner_addr.octets().as_slice())
-//            }
-//        };
-//        pa
-//    }
+
+
 //
 //    pub(crate) fn build_med(metric: u32) -> Self {
 //        // Builds the optional, non-transitory PA MULTI_EXIT_DISC (MED)
@@ -233,24 +151,28 @@ impl PathAttr {
         self.attr_value.as_slice()
     }
 }
-pub(crate) struct PathAttrBuilder<T> {
-    _marker: PhantomData<T>,
-    attr_value: Vec<u8>,
-}
-
 // This is a generic builder that can be used over any custom Path Attribute type.
 // May add a trait bound later that requires that requires each impl to have a build()
 // method.
+pub(crate) struct PathAttrBuilder<T> {
+    _marker: PhantomData<T>,
+    attr_type_code: u8,
+    attr_len: PathAttrLen,
+    attr_value: Vec<u8>,
+}
+
 impl<T> PathAttrBuilder<T> {
     pub fn new() -> Self {
         Self {
             _marker: PhantomData,
+            attr_type_code: 0,
+            attr_len: PathAttrLen::Std(0),
             attr_value: Vec::new()
         }
     }
 }
 
-// ** Individual Path Attribute Definitions **
+// ** Individual Path Attribute Definitions for those defined in RFC4271 **
 
 // ** ORIGIN **
 pub(crate) struct Origin;
@@ -288,7 +210,7 @@ impl PathAttrBuilder<Origin> {
     }
 }
 
-// ** AS_PATH
+// ** AS_PATH **
 
 pub(crate) struct AsPath;
 enum AsSegment {
@@ -329,7 +251,7 @@ impl PathAttrBuilder<AsPath> {
         self
     }
 
-    pub fn build(mut self) -> PathAttr {
+    pub fn build(self) -> PathAttr {
         let mut pa = PathAttr::new(
             2,
             PathAttrLen::Std(self.attr_value.len() as u8),
@@ -340,6 +262,49 @@ impl PathAttrBuilder<AsPath> {
     }
 }
 
+// ** NEXT_HOP **
+
+pub(crate) struct NextHop;
+
+impl PathAttrBuilder<NextHop> {
+    pub fn next_hop(mut self, val: IpAddr) -> Self {
+        match val {
+            IpAddr::V4(inner_addr) => {
+                self.attr_len = PathAttrLen::Std(4);
+                self.attr_value.extend_from_slice(inner_addr.octets().as_slice())
+            },
+            IpAddr::V6(inner_addr) => {
+                self.attr_len = PathAttrLen::Std(16);
+                self.attr_value.extend_from_slice(inner_addr.octets().as_slice())
+            }
+        }
+        self
+    }
+    pub fn build(self) -> PathAttr {
+        let mut pa = PathAttr::new(3, self.attr_len, self.attr_value);
+        pa.set_trans_bit();
+        pa
+    }
+}
+
+//    pub(crate) fn build_next_hop(next_hop: IpAddr) -> Self {
+//        // Builds the well-known, mandatory NEXT_HOP PA; RFC 4271, Pg. 19
+//        // Enabling both v4 and v6 transport
+//        let mut pa = Self::new();
+//        pa.set_trans_bit();
+//        pa.attr_type_code = 3;
+//        match next_hop {
+//            IpAddr::V4(inner_addr) => {
+//                pa.attr_len = 4;
+//                pa.attr_value.extend_from_slice(inner_addr.octets().as_slice())
+//            },
+//            IpAddr::V6(inner_addr) => {
+//                pa.attr_len = 16;
+//                pa.attr_value.extend_from_slice(inner_addr.octets().as_slice())
+//            }
+//        };
+//        pa
+//    }
 #[cfg(test)]
 mod tests {
     use super::*;
