@@ -25,7 +25,8 @@ impl Display for PathAttrError {
 impl Error for PathAttrError {}
 // This Trait is necessary since the size of the data field for eath PA
 // is variable. Will be used for creating a trait object for use in containers.
-// Also making this implement ByteLen for easing the building of Update messages.
+// May not need this trait since not using dynamic dispatch anymore. Functionality
+// can just be moved into the impl.
 pub(crate) trait PAttr {
     // Bit Fiddling
 
@@ -151,6 +152,13 @@ impl PathAttr {
         self.attr_value.as_slice()
     }
 }
+
+// This trait will enforce that all impls for custom Path Attributes
+// have a build method that returns a structurally valid PA type. This
+// should greatly simplify the API.
+pub(crate) trait PaBuilder {
+    fn build(self) -> PathAttr;
+}
 // This is a generic builder that can be used over any custom Path Attribute type.
 // May add a trait bound later that requires that requires each impl to have a build()
 // method.
@@ -199,7 +207,10 @@ impl PathAttrBuilder<Origin> {
         self.attr_value.push(val.into());
         self
     }
-    pub fn build(self) -> PathAttr {
+}
+
+impl PaBuilder for PathAttrBuilder<Origin> {
+    fn build(self) -> PathAttr {
         let mut pa = PathAttr::new(
             1,
             PathAttrLen::Std(1),
@@ -250,8 +261,10 @@ impl PathAttrBuilder<AsPath> {
         }
         self
     }
+}
 
-    pub fn build(self) -> PathAttr {
+impl PaBuilder for PathAttrBuilder<AsPath> {
+    fn build(self) -> PathAttr {
         let mut pa = PathAttr::new(
             2,
             PathAttrLen::Std(self.attr_value.len() as u8),
@@ -280,7 +293,10 @@ impl PathAttrBuilder<NextHop> {
         }
         self
     }
-    pub fn build(self) -> PathAttr {
+}
+
+impl PaBuilder for PathAttrBuilder<NextHop> {
+    fn build(self) -> PathAttr {
         let mut pa = PathAttr::new(3, self.attr_len, self.attr_value);
         pa.set_trans_bit();
         pa
