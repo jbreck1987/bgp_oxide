@@ -53,16 +53,7 @@ pub(crate) trait PAttr {
 //
 
 //
-//    pub(crate) fn build_local_pref(value: u32) -> Self {
-//        // Builds the well-known LOCAL_PREF PA
-//        // RFC 4271, Pg. 19
-//        let mut pa = Self::new();
-//        pa.set_trans_bit();
-//        pa.attr_type_code = 5;
-//        pa.attr_len = 4;
-//        pa.attr_value.extend_from_slice(value.to_be_bytes().as_slice());
-//        pa
-//    }
+
 //
 //    pub(crate) fn build_atomic_agg() -> Self {
 //        // Builds the well-known, discretionary ATOMIC_AGGREGATE PA
@@ -319,15 +310,36 @@ impl PaBuilder for PathAttrBuilder<Med> {
     }
     
 }
-//    pub(crate) fn build_med(metric: u32) -> Self {
 
+// ** LOCAL_PREF **
+
+struct LocalPref;
+impl PathAttrBuilder<LocalPref> {
+    pub fn local_pref(mut self, val: u32) -> Self {
+        self.attr_value.extend_from_slice(val.to_be_bytes().as_slice());
+        self
+    }
+}
+
+impl PaBuilder for PathAttrBuilder<LocalPref> {
+    fn build(self) -> PathAttr {
+        let mut pa = PathAttr::new(
+            5,
+            PathAttrLen::Std(4),
+            self.attr_value);
+        pa.set_trans_bit();
+        pa
+    }
+    
+}
+//    pub(crate) fn build_local_pref(value: u32) -> Self {
+//        // Builds the well-known LOCAL_PREF PA
+//        // RFC 4271, Pg. 19
 //        let mut pa = Self::new();
-//        pa.set_opt_bit();
-//        pa.attr_type_code = 4;
+//        pa.set_trans_bit();
+//        pa.attr_type_code = 5;
 //        pa.attr_len = 4;
-//
-//        // Need to decompose the u32 to bytes
-//        pa.attr_value.extend_from_slice(metric.to_be_bytes().as_slice());
+//        pa.attr_value.extend_from_slice(value.to_be_bytes().as_slice());
 //        pa
 //    }
 #[cfg(test)]
@@ -415,19 +427,19 @@ mod tests {
         // Value check. Should be 1000 decomposed as a u8
         assert_eq!(med.attr_value, vec![0u8, 0, 3, 232]);
     }
+
+    #[test]
+    fn build_local_pref() {
+        let lp = PathAttrBuilder::<LocalPref>::new().local_pref(1000).build();
+
+        // Path Attr checks
+        assert_eq!(lp.attr_flags, 64);
+        assert_eq!(lp.attr_type_code, 5);
+        assert_eq!(lp.attr_len, PathAttrLen::Std(4));
+        // Value check. Should be 1000 decomposed as a u8
+        assert_eq!(lp.attr_value, vec![0u8, 0, 3, 232]);
+    }
 }
-//    #[test]
-//    fn build_local_pref() {
-//        let lp = PathAttr::build_local_pref(1000);
-//        let cell = RefCell::new(lp);
-//
-//        // Path Attr checks
-//        assert_eq!(cell.borrow().attr_flags, 64);
-//        assert_eq!(cell.borrow().attr_type_code, 5);
-//        assert_eq!(cell.borrow().attr_len, 4);
-//        // Value check. Should be 1000 decomposed as a u8
-//        assert_eq!(cell.borrow().attr_value, vec![0u8, 0, 3, 232]);
-//    }
 //    #[test]
 //    fn build_atomic_agg() {
 //        let aa = PathAttr::build_atomic_agg();
