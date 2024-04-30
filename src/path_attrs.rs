@@ -48,39 +48,6 @@ pub(crate) trait PAttr {
     }
 }
 
-
-
-//
-
-//
-
-//
-//    pub(crate) fn build_atomic_agg() -> Self {
-//        // Builds the well-known, discretionary ATOMIC_AGGREGATE PA
-//        // RFC 4271, Pg. 19. This is essentially a marker PA.
-//        let mut pa = Self::new();
-//        pa.set_trans_bit();
-//        pa.attr_type_code = 6;
-//        pa.attr_len = 0;
-//        pa
-//    }
-//    pub(crate) fn build_aggregator_v4(last_as: u16, speaker: Ipv4Addr) -> Self {
-//        // Builds the optional, transitive AGGREGATOR PA.
-//        // RFC 4271, Pg. 19. Note that the base RFC only allows for BGP speakers
-//        // to use IPv4 addresses as IDs!
-//        let mut pa = Self::new();
-//        pa.set_trans_bit();
-//        pa.set_opt_bit();
-//        pa.attr_type_code = 7;
-//        pa.attr_len = 6;
-//        // Append Last AS
-//        pa.attr_value.extend_from_slice(last_as.to_be_bytes().as_slice());
-//        // Append ID of the aggregator
-//        pa.attr_value.extend_from_slice(speaker.octets().as_slice());
-//        pa
-//    }
-//}
-
 // Enum to flag whether a PA is Standard or Extended
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum PathAttrLen {
@@ -332,16 +299,47 @@ impl PaBuilder for PathAttrBuilder<LocalPref> {
     }
     
 }
-//    pub(crate) fn build_local_pref(value: u32) -> Self {
-//        // Builds the well-known LOCAL_PREF PA
-//        // RFC 4271, Pg. 19
-//        let mut pa = Self::new();
-//        pa.set_trans_bit();
-//        pa.attr_type_code = 5;
-//        pa.attr_len = 4;
-//        pa.attr_value.extend_from_slice(value.to_be_bytes().as_slice());
-//        pa
-//    }
+
+// ** ATOMIC_AGGREGATE **
+
+struct AtomicAggregate;
+impl PaBuilder for PathAttrBuilder<AtomicAggregate> {
+    fn build(self) -> PathAttr {
+        // Builds the well-known, discretionary ATOMIC_AGGREGATE PA
+        // RFC 4271, Pg. 19. This is essentially a marker PA.
+        let mut pa = PathAttr::new(
+            6,
+            PathAttrLen::Std(0),
+            self.attr_value);
+        pa.set_trans_bit();
+        pa
+    }
+}
+
+
+// ** AGGREGATOR **
+struct Aggregator;
+impl PathAttrBuilder<Aggregator> {
+    pub fn aggregator(mut self, last_as: u16, speaker: Ipv4Addr) -> Self {
+        // Append Last AS
+        self.attr_value.extend_from_slice(last_as.to_be_bytes().as_slice());
+        // Append ID of the aggregator
+        self.attr_value.extend_from_slice(speaker.octets().as_slice());
+        self
+    }
+}
+impl PaBuilder for PathAttrBuilder<Aggregator> {
+    fn build(self) -> PathAttr {
+        let mut pa = PathAttr::new(
+            7,
+            PathAttrLen::Std(6),
+            self.attr_value);
+        pa.set_trans_bit();
+        pa.set_opt_bit();
+        pa
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,38 +437,38 @@ mod tests {
         // Value check. Should be 1000 decomposed as a u8
         assert_eq!(lp.attr_value, vec![0u8, 0, 3, 232]);
     }
+
+    #[test]
+    fn build_atomic_agg() {
+        let aa = PathAttrBuilder::<AtomicAggregate>::new().build();
+
+        // Path Attr checks
+        assert_eq!(aa.attr_flags, 64);
+        assert_eq!(aa.attr_type_code, 6);
+        assert_eq!(aa.attr_len, PathAttrLen::Std(0));
+        assert_eq!(aa.attr_value.is_empty(), true);
+        assert_eq!(aa.attr_value.len(), 0);
+    }
+
+    #[test]
+    fn build_aggregator_v4() {
+        let ag = PathAttrBuilder::<Aggregator>::new()
+            .aggregator(65000, Ipv4Addr::new(1, 1, 1, 1))
+            .build();
+
+        // Path Attr checks
+        assert_eq!(ag.attr_flags, 192);
+        assert_eq!(ag.attr_type_code, 7);
+        assert_eq!(ag.attr_len, PathAttrLen::Std(6));
+        
+        // First get the appropriate bytes from the vec as u8 arrays
+        let mut last_as_bytes: [u8; 2] = [0u8; 2];
+        let mut ip_bytes: [u8; 4] = [0u8; 4];
+        last_as_bytes.copy_from_slice(ag.attr_value[0..=1].as_ref());
+        ip_bytes.copy_from_slice(ag.attr_value[2..=5].as_ref());
+
+        // Now can check to see if they are correct.
+        assert_eq!(u16::from_be_bytes(last_as_bytes), 65000u16);
+        assert_eq!(Ipv4Addr::from(ip_bytes), Ipv4Addr::new(1, 1, 1, 1));
+    }
 }
-//    #[test]
-//    fn build_atomic_agg() {
-//        let aa = PathAttr::build_atomic_agg();
-//        let cell = RefCell::new(aa);
-//
-//        // Path Attr checks
-//        assert_eq!(cell.borrow().attr_flags, 64);
-//        assert_eq!(cell.borrow().attr_type_code, 6);
-//        assert_eq!(cell.borrow().attr_len, 0);
-//        // Value check. Should be 1000 decomposed as a u8
-//        assert_eq!(cell.borrow().attr_value.is_empty(), true);
-//        assert_eq!(cell.borrow().attr_value.len(), 0);
-//    }
-//    #[test]
-//    fn build_aggregator_v4() {
-//        let ag = PathAttr::build_aggregator_v4(65000, Ipv4Addr::new(1, 1, 1, 1));
-//        let cell = RefCell::new(ag);
-//
-//        // Path Attr checks
-//        assert_eq!(cell.borrow().attr_flags, 192);
-//        assert_eq!(cell.borrow().attr_type_code, 7);
-//        assert_eq!(cell.borrow().attr_len, 6);
-//        
-//        // First get the appropriate bytes from the vec as u8 arrays
-//        let mut last_as_bytes: [u8; 2] = [0u8; 2];
-//        let mut ip_bytes: [u8; 4] = [0u8; 4];
-//        last_as_bytes.copy_from_slice(cell.borrow().attr_value[0..=1].as_ref());
-//        ip_bytes.copy_from_slice(cell.borrow().attr_value[2..=5].as_ref());
-//
-//        // Now can check to see if they are correct.
-//        assert_eq!(u16::from_be_bytes(last_as_bytes), 65000u16);
-//        assert_eq!(Ipv4Addr::from(ip_bytes), Ipv4Addr::new(1, 1, 1, 1));
-//    }
-//}
