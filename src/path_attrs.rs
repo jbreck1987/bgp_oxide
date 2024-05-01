@@ -12,6 +12,8 @@ use std::{
     str::FromStr,
 };
 
+use crate::message_types::ByteLen;
+
 // Implement a basic PA error
 #[derive(Debug, PartialEq)]
 struct PathAttrError(String);
@@ -93,9 +95,28 @@ impl PathAttr {
     pub fn attr_flags(&self) -> u8 {
         self.attr_flags
     }
+    pub fn attr_len(&self) -> &PathAttrLen {
+        &self.attr_len
+    }
     pub fn attr_value(&self) -> &[u8] {
         self.attr_value.as_slice()
     }
+}
+impl ByteLen for PathAttr {
+   // // Attribute Flags
+   // attr_flags: u8,
+   // // Attribute Type Code
+   // attr_type_code: u8,
+   // // Attribute Length; All PAs will have a u16 for the length.
+   // attr_len: PathAttrLen,
+   // attr_value: Vec<u8>,
+   fn byte_len(&self) -> usize {
+        let attr_len: usize = match self.attr_len {
+            PathAttrLen::Std(_) => 1,
+            PathAttrLen::Ext(_) => 2,
+        };
+        2 + attr_len + self.attr_value.len()
+   }
 }
 
 // This trait will enforce that all impls for custom Path Attributes
