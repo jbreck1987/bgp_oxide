@@ -306,11 +306,8 @@ impl ByteLen for Route {
 // Struct to couple Routes with PAs. Will be used in the Builder for Update messages.
 pub(crate) struct Nlri {
     routes: SerialVec<Route>,
-    // TO-DO: Maybe rework this to consume routes instead of clone since this could potentially be large
-    // amount of data. PAs are tied to all routes, so no need to worry about cloning them.
     path_attrs: Vec<PathAttr>
 }
-
 impl Nlri {
     pub fn new(routes: &[Route], pas: &[PathAttr]) -> Self {
         let mut this_routes: SerialVec<Route> = SerialVec::new();
@@ -549,7 +546,7 @@ mod tests {
     }
     #[test]
     fn build_update_nlri_only() {
-        // build the withdrawn routes vec
+        // build the nlri routes vec
         let route = Route::new(
             24, 
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
@@ -568,6 +565,49 @@ mod tests {
 
         // Checking values
         assert_eq!(update.withdrawn_routes_len(), 0);
+        match update.path_attrs() {
+            Some(_) => (),
+            None => panic!("Expected to see PAs!")
+        }
+        assert_eq!(update.total_path_attr_len(), pas.len() as u16);
+        match update.nlri() {
+            Some(_) => (),
+            None => panic!("Expected to see NLRI!")
+        }
+    }
+
+    #[test]
+    fn build_update_nlri_and_withdrawn() {
+        // build the withdrawn routes vec
+        let w_route = Route::new(
+            24, 
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
+        let mut w_routes: SerialVec<Route> = SerialVec::new();
+        w_routes.push(w_route);
+
+        // build the nlri routes vec
+        let n_route = Route::new(
+            24, 
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
+        let mut n_routes: SerialVec<Route> = SerialVec::new();
+        n_routes.push(n_route);
+
+        // build the pa vec
+        let pa = PathAttrBuilder::<Med>::new().metric(1000).build();
+        let pas = vec![pa];
+
+        // build the nlri
+        let nlri = Nlri::new(n_routes.as_slice(), pas.as_slice());
+
+        // build the Update msg
+        let update = UpdateBuilder::new().withdrawn_routes(w_routes).nlri(nlri).build();
+
+        // Checking values
+        assert_eq!(update.withdrawn_routes_len(), 1 + 4);
+        match update.withdrawn_routes() {
+            Some(_) => (),
+            None => panic!("Expected to see Withdrawn routes!")
+        }
         match update.path_attrs() {
             Some(_) => (),
             None => panic!("Expected to see PAs!")
