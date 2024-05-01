@@ -5,17 +5,13 @@
 
 // GLOBAL TO-DOs:
 // 1. Make sure that all arbitrary "puts" into the BytesMut types are Big Endian!
-// The "put_<bit_size>" methods already enforce this.
 // 2. Add tests for OpenSerializer
-
-use crate::message_types::{
-    Header,
-    Open,
-    Notification,
-    Update,
-    Tlv,
-    MessageType,
+use std::{
+    net::{IpAddr}
 };
+use crate::{message_types::{
+    ByteLen, Header, MessageType, Notification, Open, Route, Tlv, Update
+}, path_attrs::{PathAttr, PathAttrLen}};
 
 use crate::errors::{
     NotifErrorCode,
@@ -102,9 +98,117 @@ impl OpenSerializer {
             }
         }
     }
-    
 }
 
+struct RouteSerializer {
+    msg: Route,
+    buf: BytesMut
+}
+
+impl RouteSerializer {
+    pub fn new(msg: Route) -> Self {
+        let byte_len = msg.byte_len();
+        Self {
+            msg,
+            buf: BytesMut::with_capacity(byte_len)
+        }
+    }
+    pub fn serialize(mut self) -> BytesMut {
+        self.buf.put_u8(self.msg.length());
+        match self.msg.prefix() {
+            IpAddr::V4(x) => self.buf.put(x.octets().as_slice()),
+            IpAddr::V6(x) => self.buf.put(x.octets().as_slice()),
+        }
+        self.buf
+    }
+}
+
+struct PathAttrSerializer {
+    msg: PathAttr,
+    buf: BytesMut
+}
+
+impl PathAttrSerializer {
+    pub fn new(msg: PathAttr) -> Self {
+        let byte_len = msg.byte_len();
+        Self {
+            msg,
+            buf: BytesMut::with_capacity(byte_len)
+        }
+    }
+    pub fn serialize(mut self) -> BytesMut {
+        self.buf.put_u8(self.msg.attr_flags());
+        self.buf.put_u8(self.msg.attr_type_code());
+        // Serialize based on standard or extended length size
+        match self.msg.attr_len() {
+            &PathAttrLen::Std(x) => self.buf.put_u8(x),
+            &PathAttrLen::Ext(x) => self.buf.put_u16(x),
+        }
+        self.buf.put(self.msg.attr_value());
+        self.buf
+    }
+}
+struct UpdateSerializer {
+    msg: Update,
+    buf: BytesMut,
+}
+
+impl UpdateSerializer {
+    pub fn new(msg: Update) -> Self {
+        let w_routes_len = msg.withdrawn_routes_len();
+        let pa_len = msg.total_path_attr_len();
+        Self {
+            msg,
+            // This will not capture the entire Update message length, but will lower number of resizes
+            buf: BytesMut::with_capacity(2 + w_routes_len as usize + 2 + pa_len as usize)
+        }
+    }
+    pub fn serialize(mut self) -> BytesMut {
+        self.buf.put_u16(self.msg.withdrawn_routes_len());
+
+        // Check to see if there any withdrawn routes to serialize
+        // and serialize if so
+        match self.msg.withdrawn_routes_mut() {
+            Some(serial_vec) => {
+                for route in serial_vec {
+                    // Create RouteSerializer and serialize the route
+                    let rs = RouteSerializer::new(route);
+                    self.buf.put(rs.serialize())
+                }
+            },
+            None => ()
+        }
+
+        self.buf.put_u16(self.msg.total_path_attr_len());
+        
+        // Check to see if there are any PAs to serialize
+        // and serialize if so.
+        match self.msg.path_attrs_mut() {
+            Some(vec) => {
+                for path_attr in vec {
+                    // Create RouteSerializer and serialize the route.
+                    // Not worry about cloning here, PA size is small.
+                    let ps = PathAttrSerializer::new(path_attr.clone());
+                    self.buf.put(ps.serialize())
+                }
+            },
+            None => ()
+        }
+        // Finally, check to see if any NLRI need to be serialized
+        match self.msg.nlri_mut() {
+            Some(serial_vec) => {
+                for route in serial_vec {
+                    // Create RouteSerializer and serialize the route
+                    let rs = RouteSerializer::new(route);
+                    self.buf.put(rs.serialize())
+                }
+            },
+            None => ()
+        }
+        self.buf
+
+    }
+}
 
 #[cfg(test)]
 mod tests {
