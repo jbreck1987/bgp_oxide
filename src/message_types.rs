@@ -5,12 +5,17 @@ use std::{
 };
 use bytes::Buf;
 
-use crate::{errors::{
-    MsgHeaderErrSubcode,
-    NotifErrorCode,
-    OpenMsgErrSubcode,
-    UpdateMsgErrSubcode},
-    path_attrs::PathAttr};
+use crate::{
+    errors::{
+        MsgHeaderErrSubcode,
+        NotifErrorCode,
+        OpenMsgErrSubcode,
+        UpdateMsgErrSubcode
+    },
+    path_attrs::{
+        PathAttr,
+        PathAttrBuilder}
+};
 
 // Definitions for the basic message types in BGP.
 static OPEN_VALUE: u8 = 1;
@@ -240,6 +245,12 @@ impl<T> SerialVec<T> {
     pub fn to_vec(self) -> Vec<T> {
         self.inner
     }
+    pub fn push(&mut self, val: T) {
+        self.inner.push(val);
+    }
+    pub fn as_slice(&self) -> &[T] {
+        self.inner.as_slice()
+    }
 }
 
 impl<T: ByteLen> SerialVec<T> {
@@ -311,8 +322,8 @@ impl Nlri {
             path_attrs: this_pas
         }
     }
-    
 }
+
 
 pub (crate) struct Update {
     withdrawn_routes_len: u16,
@@ -322,6 +333,43 @@ pub (crate) struct Update {
     // Only difference from withdrawn routes is that the PAs apply to the NLRI, while the withdrawn
     // routes only need prefix info to be removed.
     nlri: Option<SerialVec<Route>>,
+}
+
+impl Update {
+    pub fn withdrawn_routes_len(&self) -> u16 {
+        self.withdrawn_routes_len
+    }
+    pub fn withdrawn_routes(&self) -> Option<&[Route]> {
+        match &self.withdrawn_routes {
+            Some(x) => Some(x.as_slice()),
+            None => None
+        }
+    }
+    pub fn withdrawn_routes_mut(&mut self) -> Option<&mut SerialVec<Route>> {
+        self.withdrawn_routes.as_mut()
+    }
+    pub fn total_path_attr_len(&self) -> u16 {
+        self.total_path_attr_len
+    }
+    pub fn path_attrs(&self) -> Option<&[PathAttr]> {
+        match &self.path_attrs {
+            Some(x) => Some(x.as_slice()),
+            None => None
+        }
+    }
+    pub fn path_attrs_mut(&mut self) -> Option<&mut Vec<PathAttr>> {
+        self.path_attrs.as_mut()
+    }
+    pub fn nlri(&self) -> Option<&[Route]> {
+        match self.nlri.as_ref() {
+            Some(x) => Some(x.as_slice()),
+            None => None
+        }
+    }
+    pub fn nlri_mut(&mut self) -> Option<&mut SerialVec<Route>> {
+        self.nlri.as_mut()
+
+    }
 }
 
 pub(crate) struct UpdateBuilder {
@@ -379,6 +427,8 @@ impl UpdateBuilder {
 
 #[cfg(test)]
 mod tests {
+    use crate::path_attrs;
+
     use super::*;
 
     #[test]
@@ -469,5 +519,30 @@ mod tests {
         assert_eq!(msg.bgp_id, 1);
         assert_eq!(msg.opt_params.len(), 2);
         assert_eq!(msg.opt_params_len, 11);
+    }
+
+    #[test]
+    fn build_update_withdrawn_only() {
+        // build the withdrawn routes vec
+        let route = Route::new(
+            24, 
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
+        let mut routes: SerialVec<Route> = SerialVec::new();
+        routes.push(route);
+
+        // no PAs, can build the Update msg
+        let update = UpdateBuilder::new().withdrawn_routes(routes).build();
+
+        // Checking values
+        assert_eq!(update.withdrawn_routes_len(), 1 + 4);
+        match update.path_attrs() {
+            Some(_) => panic!("Expected no PAs!"),
+            None => ()
+        }
+        assert_eq!(update.total_path_attr_len(), 0);
+        match update.nlri() {
+            Some(_) => panic!("Expected no NLRI!"),
+            None => ()
+        }
     }
 }
