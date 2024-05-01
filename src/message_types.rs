@@ -294,12 +294,9 @@ impl ByteLen for Route {
 // Struct to couple Routes with PAs. Will be used in the Builder for Update messages.
 pub(crate) struct Nlri {
     routes: SerialVec<Route>,
-    // Need the PAs to implement ByteLen to store in a SerialVec
-    // Such that we can get the benefit of using byte_len(). Using an Rc
-    // to get Clone.
-    // TO-DO: Maybe rework this to consume routes since this could potentially be large
-    // amount of data. PAs are tied to all routes, so no need to worry about Cloning.
-    path_attrs: SerialVec<PathAttr>
+    // TO-DO: Maybe rework this to consume routes instead of clone since this could potentially be large
+    // amount of data. PAs are tied to all routes, so no need to worry about cloning them.
+    path_attrs: Vec<PathAttr>
 }
 
 impl Nlri {
@@ -307,7 +304,7 @@ impl Nlri {
         let mut this_routes: SerialVec<Route> = SerialVec::new();
         this_routes.extend_from_slice(routes);
 
-        let mut this_pas: SerialVec<PathAttr> = SerialVec::new();
+        let mut this_pas: Vec<PathAttr> = Vec::new();
         this_pas.extend_from_slice(pas);
         Self {
             routes: this_routes,
@@ -321,18 +318,17 @@ pub (crate) struct Update {
     withdrawn_routes_len: u16,
     withdrawn_routes: Option<SerialVec<Route>>,
     total_path_attr_len: u16,
-    // Using trait object since can have a mixture of normal and extended Path Attributes here.
-    path_attrs: Option<SerialVec<PathAttr>>,
+    path_attrs: Option<Vec<PathAttr>>,
     // Only difference from withdrawn routes is that the PAs apply to the NLRI, while the withdrawn
     // routes only need prefix info to be removed.
-    nlri: Option<Vec<Route>>,
+    nlri: Option<SerialVec<Route>>,
 }
 
 pub(crate) struct UpdateBuilder {
     withdrawn_routes_len: u16,
     withdrawn_routes: Option<SerialVec<Route>>,
     total_path_attr_len: u16,
-    path_attrs: Option<SerialVec<PathAttr>>,
+    path_attrs: Option<Vec<PathAttr>>,
     nlri: Option<SerialVec<Route>>,
 }
 
@@ -364,9 +360,19 @@ impl UpdateBuilder {
         match (nlri.routes.len(), nlri.path_attrs.len()) {
             (0, _) | (_, 0) => self,
             _ => {
-                todo!()
-                //self.total_path_attr_len = nlri.path_attrs.byte_len()
+                self.path_attrs = Some(nlri.path_attrs);
+                self.nlri = Some(nlri.routes);
+                self
             }
+        }
+    }
+    pub fn build(self) -> Update {
+        Update {
+            withdrawn_routes_len: self.withdrawn_routes_len,
+            withdrawn_routes: self.withdrawn_routes,
+            total_path_attr_len: self.total_path_attr_len,
+            path_attrs: self.path_attrs,
+            nlri: self.nlri
         }
     }
 }
