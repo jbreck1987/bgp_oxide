@@ -242,7 +242,10 @@ impl PathAttrBuilder<NextHop> {
 
 impl PaBuilder for PathAttrBuilder<NextHop> {
     fn build(self) -> PathAttr {
-        let mut pa = PathAttr::new(3, self.attr_len, self.attr_value);
+        let mut pa = PathAttr::new(
+            3,
+            self.attr_len,
+            self.attr_value);
         pa.set_trans_bit();
         pa
     }
@@ -250,7 +253,7 @@ impl PaBuilder for PathAttrBuilder<NextHop> {
 
 // ** MED **
 
-struct Med;
+pub(crate) struct Med;
 impl PathAttrBuilder<Med> {
     pub fn metric(mut self, val: u32) -> Self {
         // Builds the optional, non-transitory PA MULTI_EXIT_DISC (MED)
@@ -275,7 +278,7 @@ impl PaBuilder for PathAttrBuilder<Med> {
 
 // ** LOCAL_PREF **
 
-struct LocalPref;
+pub(crate) struct LocalPref;
 impl PathAttrBuilder<LocalPref> {
     pub fn local_pref(mut self, val: u32) -> Self {
         self.attr_value.extend_from_slice(val.to_be_bytes().as_slice());
@@ -297,7 +300,7 @@ impl PaBuilder for PathAttrBuilder<LocalPref> {
 
 // ** ATOMIC_AGGREGATE **
 
-struct AtomicAggregate;
+pub(crate) struct AtomicAggregate;
 impl PaBuilder for PathAttrBuilder<AtomicAggregate> {
     fn build(self) -> PathAttr {
         // Builds the well-known, discretionary ATOMIC_AGGREGATE PA
@@ -313,7 +316,7 @@ impl PaBuilder for PathAttrBuilder<AtomicAggregate> {
 
 
 // ** AGGREGATOR **
-struct Aggregator;
+pub(crate) struct Aggregator;
 impl PathAttrBuilder<Aggregator> {
     pub fn aggregator(mut self, last_as: u16, speaker: Ipv4Addr) -> Self {
         // Append Last AS
