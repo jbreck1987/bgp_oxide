@@ -185,10 +185,9 @@ impl UpdateSerializer {
         // and serialize if so.
         match self.msg.path_attrs_mut() {
             Some(vec) => {
-                for path_attr in vec {
+                for path_attr in vec.to_owned() {
                     // Create RouteSerializer and serialize the route.
-                    // Not worry about cloning here, PA size is small.
-                    let ps = PathAttrSerializer::new(path_attr.clone());
+                    let ps = PathAttrSerializer::new(path_attr);
                     self.buf.put(ps.serialize())
                 }
             },
