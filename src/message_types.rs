@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     convert::From,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    ops::{Deref, DerefMut},
 };
 use bytes::Buf;
 
@@ -234,23 +235,27 @@ pub(crate) struct SerialVec<T>
     inner: Vec<T>
 }
 
-impl<T> SerialVec<T> {
-    pub fn len(&self) -> usize {
-        self.inner.len()
+// Implementing Deref to pass through all the existing methods/traits
+// for Vec
+impl<T> Deref for SerialVec<T> {
+    type Target = Vec<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
+}
+
+impl<T> DerefMut for SerialVec<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+    
+}
+impl<T> SerialVec<T> {
     pub fn new() -> Self {
         Self {
             inner: Vec::new()
         }
-    }
-    pub fn to_vec(self) -> Vec<T> {
-        self.inner
-    }
-    pub fn push(&mut self, val: T) {
-        self.inner.push(val);
-    }
-    pub fn as_slice(&self) -> &[T] {
-        self.inner.as_slice()
     }
 }
 
@@ -263,11 +268,17 @@ impl<T: ByteLen> SerialVec<T> {
     }
 }
 
-impl<T: Clone> SerialVec<T> {
-    pub fn extend_from_slice(&mut self, other: &[T]) {
-        self.inner.extend_from_slice(other)
+impl<T> Iterator for SerialVec<T> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.pop()
     }
 }
+//impl<T: Clone> SerialVec<T> {
+//    pub fn extend_from_slice(&mut self, other: &[T]) {
+//        self.inner.extend_from_slice(other)
+//    }
+//}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Route {
