@@ -14,7 +14,8 @@ use crate::{
     },
     path_attrs::{
         PathAttr,
-        PathAttrBuilder}
+        PathAttrBuilder,
+        Med}
 };
 
 // Definitions for the basic message types in BGP.
@@ -407,9 +408,10 @@ impl UpdateBuilder {
         // this is erroneous. Will return a default update
         match (nlri.routes.len(), nlri.path_attrs.len()) {
             (0, _) | (_, 0) => self,
-            _ => {
+            (_, path_attrs_len) => {
                 self.path_attrs = Some(nlri.path_attrs);
                 self.nlri = Some(nlri.routes);
+                self.total_path_attr_len = path_attrs_len as u16;
                 self
             }
         }
@@ -427,7 +429,7 @@ impl UpdateBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::path_attrs;
+    use crate::path_attrs::{self, PaBuilder};
 
     use super::*;
 
@@ -543,6 +545,37 @@ mod tests {
         match update.nlri() {
             Some(_) => panic!("Expected no NLRI!"),
             None => ()
+        }
+    }
+    #[test]
+    fn build_update_nlri_only() {
+        // build the withdrawn routes vec
+        let route = Route::new(
+            24, 
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
+        let mut routes: SerialVec<Route> = SerialVec::new();
+        routes.push(route);
+
+        // build the pa vec
+        let pa = PathAttrBuilder::<Med>::new().metric(1000).build();
+        let pas = vec![pa];
+
+        // build the nlri
+        let nlri = Nlri::new(routes.as_slice(), pas.as_slice());
+
+        // build the Update msg
+        let update = UpdateBuilder::new().nlri(nlri).build();
+
+        // Checking values
+        assert_eq!(update.withdrawn_routes_len(), 0);
+        match update.path_attrs() {
+            Some(_) => (),
+            None => panic!("Expected to see PAs!")
+        }
+        assert_eq!(update.total_path_attr_len(), pas.len() as u16);
+        match update.nlri() {
+            Some(_) => (),
+            None => panic!("Expected to see NLRI!")
         }
     }
 }
