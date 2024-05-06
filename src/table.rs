@@ -3,11 +3,13 @@
 use std::{
     cmp,
     cmp::Reverse,
-    collections::{HashMap, HashSet, BinaryHeap},
+    collections::{HashMap, BinaryHeap},
     hash::{Hash, Hasher},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     rc::Rc,
 };
+
+use hashbrown::HashSet;
 
 use crate::{message_types::{Nlri, Update}, path_attrs::{
     PathAttr, AGGREGATOR, AS_PATH, ATOMIC_AGGREGATE, LOCAL_PREF, MED, NEXT_HOP, ORIGIN
@@ -30,7 +32,7 @@ impl From<&RouteSource> for u8 {
 
 // This data structure is used to simplify comparisons between many candidate paths
 // to a destination as opposed to destructuring the raw path attribute data for each comparison.
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Hash, Clone)]
 pub(crate) struct DecisionProcessData {
     local_pref: Option<u32>,
     as_path_len: u8,
@@ -110,7 +112,7 @@ impl Ord for DecisionProcessData {
 // parameters necessary for running the Decision Process. This implies some data duplication, but since some PAs
 // aren't relevant for the Decision Process (and one table entry can be pointed to by many routes), this seems
 // reasonable.
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub(crate) struct PathAttributeTableEntry {
     decision_data: DecisionProcessData, 
     raw_path_attrs: Vec<PathAttr>
@@ -147,6 +149,27 @@ impl Ord for PathAttributeTableEntry {
 pub(crate) struct PathAttributeTable {
     table: HashSet<Rc<PathAttributeTableEntry>>
 }
+impl PathAttributeTable {
+    pub fn new() -> Self {
+        Self {
+            table: HashSet::new()
+        }
+    }
+    pub fn insert(&mut self, entry: PathAttributeTableEntry) -> Rc<PathAttributeTableEntry> {
+        // Checks to see if the entry exists in the table and inserts if necessary.
+        // A reference to the entry is always returned.
+        Rc::clone(self.table.get_or_insert(Rc::new(entry)))
+    }
+
+    pub fn remove_stale(&mut self) {
+        // Checks to see if any stale entries in the table exist (aka. Rc strong counts are 1)
+        // and drops them.
+        self.table.retain(|rc| Rc::strong_count(rc) > 1);
+    }
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+}
 
 // The BinaryHeap with reverse effectively makes it a min heap. Want the paths to be sorted based
 // on their Ordering. The best path evaluates to "less than"
@@ -166,28 +189,26 @@ pub(crate) struct BgpTable<'a, A> {
 }
 impl<'a, A> BgpTable<'a, A> {
     pub fn insert(update_msg: Update, attr_table: &mut PathAttributeTable) {
-        // Inserts a path into the BGP table and, implicitly, in the
+        // Inserts paths from an Update message into the BGP table and, implicitly, in the
         // associated path attribute table if necessary.
 
         // First need to generate a DecisionProcessData structure
         // based on the information.
-        // Second need to extract the PA vec from
+        // Second need to extract the PA vec from the Update message
         todo!()
     }
 }  
 impl<'a> BgpTable<'a, Ipv4Addr> {
     pub fn new() -> Self {
-        let t: HashMap<Ipv4Addr, BgpTableEntry<'a>> = HashMap::new();
         Self {
-            table: t
+            table: HashMap::new()
         }
     }
 }
 impl<'a> BgpTable<'a, Ipv6Addr> {
     pub fn new() -> Self {
-        let t: HashMap<Ipv6Addr, BgpTableEntry<'a>> = HashMap::new();
         Self {
-            table: t
+            table: HashMap::new()
         }
     }
 }
