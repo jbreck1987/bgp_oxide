@@ -160,7 +160,6 @@ impl PathAttributeTable {
         // A reference to the entry is always returned.
         Rc::clone(self.table.get_or_insert(Rc::new(entry)))
     }
-
     pub fn remove_stale(&mut self) {
         // Checks to see if any stale entries in the table exist (aka. Rc strong counts are 1)
         // and drops them.
@@ -173,21 +172,21 @@ impl PathAttributeTable {
 
 // The BinaryHeap with reverse effectively makes it a min heap. Want the paths to be sorted based
 // on their Ordering. The best path evaluates to "less than"
-struct BgpTableEntry<'a> {
-    paths: BinaryHeap<Reverse<&'a PathAttributeTableEntry>>,
+struct BgpTableEntry {
+    paths: BinaryHeap<Reverse<Rc<PathAttributeTableEntry>>>,
     changed: bool,
 }
-impl BgpTableEntry<'_> {
+impl BgpTableEntry {
     fn new() -> Self {
         todo!()
     }
 }
 
 // Will be generic over AFI (v4/v6)
-pub(crate) struct BgpTable<'a, A> {
-    table: HashMap<A, BgpTableEntry<'a>>
+pub(crate) struct BgpTable<A> {
+    table: HashMap<A, BgpTableEntry>
 }
-impl<'a, A> BgpTable<'a, A> {
+impl<A> BgpTable<A> {
     pub fn insert(update_msg: Update, attr_table: &mut PathAttributeTable) {
         // Inserts paths from an Update message into the BGP table and, implicitly, in the
         // associated path attribute table if necessary.
@@ -198,14 +197,14 @@ impl<'a, A> BgpTable<'a, A> {
         todo!()
     }
 }  
-impl<'a> BgpTable<'a, Ipv4Addr> {
+impl BgpTable<Ipv4Addr> {
     pub fn new() -> Self {
         Self {
             table: HashMap::new()
         }
     }
 }
-impl<'a> BgpTable<'a, Ipv6Addr> {
+impl BgpTable<Ipv6Addr> {
     pub fn new() -> Self {
         Self {
             table: HashMap::new()
@@ -325,6 +324,150 @@ mod tests {
             igp_cost: 0,
             peer_id: ip_addr.clone(),
             peer_addr: IpAddr::V4(ip_addr.clone())
+        };
+
+        assert!(candidate > best);
+    }
+    #[test]
+    fn decision_data_cmp_rte_src() {
+        let ip_addr = Ipv4Addr::new(192, 168, 1, 1);
+        let best = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 900,
+            peer_id: ip_addr.clone(),
+            peer_addr: IpAddr::V4(ip_addr.clone())
+        };
+        let candidate = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ibgp,
+            igp_cost: 0,
+            peer_id: ip_addr.clone(),
+            peer_addr: IpAddr::V4(ip_addr.clone())
+        };
+
+        assert!(candidate > best);
+    }
+    #[test]
+    fn decision_data_cmp_igp_cost() {
+        let ip_addr = Ipv4Addr::new(192, 168, 1, 1);
+        let best = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_id: ip_addr.clone(),
+            peer_addr: IpAddr::V4(ip_addr.clone())
+        };
+        let candidate = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 900,
+            peer_id: ip_addr.clone(),
+            peer_addr: IpAddr::V4(ip_addr.clone())
+        };
+
+        assert!(candidate > best);
+    }
+    #[test]
+    fn decision_data_cmp_peer_id() {
+        let best_ip_addr = Ipv4Addr::new(192, 168, 1, 1);
+        let cand_ip_addr = Ipv4Addr::new(192, 168, 2, 1);
+        let best = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_id: best_ip_addr.clone(),
+            peer_addr: IpAddr::V4(cand_ip_addr.clone())
+        };
+        let candidate = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_id: cand_ip_addr.clone(),
+            peer_addr: IpAddr::V4(cand_ip_addr.clone())
+        };
+
+        assert!(candidate > best);
+    }
+    #[test]
+    fn decision_data_cmp_peer_addr_v4() {
+        let best_ip_addr = Ipv4Addr::new(192, 168, 1, 1);
+        let cand_ip_addr = Ipv4Addr::new(192, 168, 2, 1);
+        let best = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_id: cand_ip_addr.clone(),
+            peer_addr: IpAddr::V4(best_ip_addr.clone())
+        };
+        let candidate = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_id: cand_ip_addr.clone(),
+            peer_addr: IpAddr::V4(cand_ip_addr.clone())
+        };
+
+        assert!(candidate > best);
+    }
+    #[test]
+    fn decision_data_cmp_peer_addr_v6() {
+        let best_ip_addr = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xffff, 0xffff);
+        let cand_ip_addr = Ipv6Addr::new(0, 0, 0, 0, 0x01, 0xffff, 0xffff, 0xffff);
+        let peer_id = Ipv4Addr::new(192, 168, 1, 1);
+        let best = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_id: peer_id.clone(),
+            peer_addr: IpAddr::V6(best_ip_addr.clone())
+        };
+        let candidate = DecisionProcessData {
+            local_pref: Some(1000),
+            as_path_len: 0,
+            last_as: 65000,
+            origin: 0,
+            med: 0,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_id: peer_id.clone(),
+            peer_addr: IpAddr::V6(cand_ip_addr.clone())
         };
 
         assert!(candidate > best);
