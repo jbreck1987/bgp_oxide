@@ -13,7 +13,7 @@ use hashbrown::HashSet;
 
 use crate::{message_types::{Nlri, Update}, path_attrs::*};
 
-#[derive(Eq, PartialEq, Hash, Clone)]
+#[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub (crate) enum RouteSource {
     Ebgp,
     Ibgp
@@ -30,7 +30,7 @@ impl From<&RouteSource> for u8 {
 
 // This data structure is used to simplify comparisons between many candidate paths
 // to a destination as opposed to destructuring the raw path attribute data for each comparison.
-#[derive(Eq, PartialEq, Hash, Clone)]
+#[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub(crate) struct DecisionProcessData {
     local_pref: Option<u32>,
     as_path_len: u8,
@@ -110,7 +110,7 @@ impl Ord for DecisionProcessData {
 // parameters necessary for running the Decision Process. This implies some data duplication, but since some PAs
 // aren't relevant for the Decision Process (and one table entry can be pointed to by many routes), this seems
 // reasonable.
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub(crate) struct PathAttributeTableEntry {
     decision_data: DecisionProcessData, 
     raw_path_attrs: Vec<PathAttr>
@@ -257,6 +257,7 @@ impl BgpTable<Ipv6Addr> {
 #[cfg(test)]
 mod tests {
     use crate::path_attrs::{AsPath, PathAttrBuilder};
+    use rand::seq::SliceRandom;
 
     use super::*;
 
@@ -516,15 +517,20 @@ mod tests {
 
         assert!(candidate > best);
     }
-    fn build_pa_entry() -> PathAttributeTableEntry {
-        let pa = PathAttrBuilder::<Med>::new().metric(1000).build();
-        let raw_pas = vec![pa];
+    fn build_pa_entry(med_val: u32, origin: OriginValue) -> PathAttributeTableEntry {
+        let pa = PathAttrBuilder::<Med>::new().metric(med_val).build();
+        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin.clone()).build();
+        let mut raw_pas = vec![pa, pa2];
+        // Randomly shuffle the PA vector since it should be sorted deterministically.
+        let mut rng = rand::thread_rng();
+        raw_pas.shuffle(&mut rng);
+        
         let ddata = DecisionProcessData {
             local_pref: Some(100),
             as_path_len: 1,
             last_as: 65000,
-            origin: 0,
-            med: 1000,
+            origin: origin.into(),
+            med: med_val,
             route_souce: RouteSource::Ebgp,
             igp_cost: 0,
             peer_addr: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
@@ -533,26 +539,70 @@ mod tests {
         PathAttributeTableEntry::new(ddata, raw_pas)
     }
     #[test]
+    fn test_pat_entry_eq () {
+        let pate_1 = build_pa_entry(100, OriginValue::Igp);
+        let pate_2 = build_pa_entry(100, OriginValue::Igp);
+        let pate_3 = build_pa_entry(300, OriginValue::Egp);
+
+        assert_eq!(pate_1, pate_2);
+        assert_ne!(pate_1, pate_3);
+    }
+    #[test]
+    fn test_pat_remove_stale() {
+        let mut pa_table = PathAttributeTable::new();
+        let pa_entry = build_pa_entry(1000, OriginValue::Igp);
+        let pa_entry_c = pa_entry.clone();
+
+        // Add entry to table then clone to increase strong count
+        let rc_ref = pa_table.insert(pa_entry);
+        let cloned = Rc::clone(rc_ref);
+
+        // Run remove stale; nothing should get removed since strong counts should be two
+        pa_table.remove_stale();
+        assert_eq!(pa_table.len(), 1);
+    }
+    #[test]
     fn bgp_entry_insert() {
         let mut pa_table = PathAttributeTable::new();
-        let pa_entry = build_pa_entry();
+        let pa_entry = build_pa_entry(1000, OriginValue::Egp);
+        let pa_entry_c = pa_entry.clone();
 
         // Insert into pa entry table to get ref then build a new bgp_entry
         let bgp_entry = BgpTableEntry::new(pa_table.insert(pa_entry));
 
-        // Verify entry inserted into bgp table entry
+        // Verify entry was inserted into bgp table entry and is the same
         assert_eq!(bgp_entry.paths.len(), 1);
+        assert_eq!(bgp_entry.is_in(&pa_entry_c), true);
     }
     #[test]
     fn bgp_entry_is_in() {
         let mut pa_table = PathAttributeTable::new();
-        let pa_entry = build_pa_entry();
+        let pa_entry = build_pa_entry(1000, OriginValue::Igp);
         let pa_entry_c = pa_entry.clone();
+        let wrong_pa_entry = build_pa_entry(900, OriginValue::Incomplete);
 
         // Insert into pa entry table to get ref then build a new bgp_entry
         let bgp_entry = BgpTableEntry::new(pa_table.insert(pa_entry));
 
         // Verify entry inserted into bgp table entry matches
         assert_eq!(bgp_entry.is_in(&pa_entry_c), true);
+        assert_eq!(bgp_entry.is_in(&wrong_pa_entry), false);
     }
+    #[test]
+    fn test_bestpath() {
+        let mut pa_table = PathAttributeTable::new();
+        let pa_entry = build_pa_entry(1000, OriginValue::Incomplete);
+        let best_pa_entry = build_pa_entry(10, OriginValue::Igp);
+        let best_pa_entry_c = best_pa_entry.clone();
+
+        // Insert both pa entries into PA table to get ref then build a new bgp_entry
+        let mut bgp_entry = BgpTableEntry::new(pa_table.insert(pa_entry));
+        bgp_entry.insert(pa_table.insert(best_pa_entry));
+
+        // Check to make sure best path is the one with lower med
+        let best_rc = Rc::new(best_pa_entry_c);
+        assert_eq!(bgp_entry.paths.len(), 2);
+        assert_eq!(bgp_entry.bestpath(), &best_rc)
+    }
+
 }
