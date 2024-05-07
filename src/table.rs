@@ -11,9 +11,7 @@ use std::{
 
 use hashbrown::HashSet;
 
-use crate::{message_types::{Nlri, Update}, path_attrs::{
-    PathAttr, AGGREGATOR, AS_PATH, ATOMIC_AGGREGATE, LOCAL_PREF, MED, NEXT_HOP, ORIGIN
-}};
+use crate::{message_types::{Nlri, Update}, path_attrs::*};
 
 #[derive(Eq, PartialEq, Hash, Clone)]
 pub (crate) enum RouteSource {
@@ -155,10 +153,10 @@ impl PathAttributeTable {
             table: HashSet::new()
         }
     }
-    pub fn insert(&mut self, entry: PathAttributeTableEntry) -> Rc<PathAttributeTableEntry> {
+    pub fn insert(&mut self, entry: PathAttributeTableEntry) -> &Rc<PathAttributeTableEntry> {
         // Checks to see if the entry exists in the table and inserts if necessary.
         // A reference to the entry is always returned.
-        Rc::clone(self.table.get_or_insert(Rc::new(entry)))
+        self.table.get_or_insert(Rc::new(entry))
     }
     pub fn remove_stale(&mut self) {
         // Checks to see if any stale entries in the table exist (aka. Rc strong counts are 1)
@@ -174,20 +172,60 @@ impl PathAttributeTable {
 // on their Ordering. The best path evaluates to "less than"
 struct BgpTableEntry {
     paths: BinaryHeap<Reverse<Rc<PathAttributeTableEntry>>>,
-    changed: bool,
 }
 impl BgpTableEntry {
-    fn new() -> Self {
-        todo!()
+    fn new(pa_entry: &Rc<PathAttributeTableEntry>) -> Self {
+        // No table entry can be created without an associated path! This API assumes
+        // the ref to the PA Entry is coming from the Path Attribute table (has already been inserted there).
+        let mut new_path: BinaryHeap<Reverse<Rc<PathAttributeTableEntry>>> = BinaryHeap::new();
+        new_path.push(Reverse(Rc::clone(pa_entry)));
+
+        Self {
+            paths: new_path
+        }
+    }
+    fn insert(&mut self, pa_entry: &Rc<PathAttributeTableEntry>) -> bool {
+        // Inserts the ref to a table entry (presumably returned from the PathAttributeTable)
+        // into the local min. heap if it doesn't already exist (duplicate entry).
+        // Leverage deref coercion with is_in().
+        match self.is_in(pa_entry) {
+            true => false,
+            false => {
+                self.paths.push(Reverse(Rc::clone(pa_entry)));
+                true
+            }
+        }
+    }
+    fn is_in(&self, pa_entry: &PathAttributeTableEntry) -> bool {
+        // Walks the heap to see if the ref already exists
+        match self
+            .paths
+            .iter()
+            .filter(|exist| exist.0.as_ref() == pa_entry)
+            .count() {
+                0 => false,
+                _ => true
+            }
+    }
+    fn bestpath(&self) -> &Rc<PathAttributeTableEntry> {
+        // Returns the best path for this destination (aka top item in the heap)
+        &self
+        .paths
+        .peek()
+        .expect("A table entry should not exist without a path!")
+        .0
+
     }
 }
 
 // Will be generic over AFI (v4/v6)
 pub(crate) struct BgpTable<A> {
-    table: HashMap<A, BgpTableEntry>
+    table: HashMap<A, BgpTableEntry>,
+    table_version: usize,
+    pa_table: PathAttributeTable,
 }
 impl<A> BgpTable<A> {
-    pub fn insert(update_msg: Update, attr_table: &mut PathAttributeTable) {
+    pub fn walk(&mut self, payload: Update) {
         // Inserts paths from an Update message into the BGP table and, implicitly, in the
         // associated path attribute table if necessary.
 
@@ -200,20 +238,26 @@ impl<A> BgpTable<A> {
 impl BgpTable<Ipv4Addr> {
     pub fn new() -> Self {
         Self {
-            table: HashMap::new()
+            table: HashMap::new(),
+            table_version: 0,
+            pa_table: PathAttributeTable::new()
         }
     }
 }
 impl BgpTable<Ipv6Addr> {
     pub fn new() -> Self {
         Self {
-            table: HashMap::new()
+            table: HashMap::new(),
+            table_version: 0,
+            pa_table: PathAttributeTable::new()
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::path_attrs::{AsPath, PathAttrBuilder};
+
     use super::*;
 
     #[test]
@@ -471,5 +515,44 @@ mod tests {
         };
 
         assert!(candidate > best);
+    }
+    fn build_pa_entry() -> PathAttributeTableEntry {
+        let pa = PathAttrBuilder::<Med>::new().metric(1000).build();
+        let raw_pas = vec![pa];
+        let ddata = DecisionProcessData {
+            local_pref: Some(100),
+            as_path_len: 1,
+            last_as: 65000,
+            origin: 0,
+            med: 1000,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_addr: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
+            peer_id: Ipv4Addr::new(192, 168, 1, 1)
+        };
+        PathAttributeTableEntry::new(ddata, raw_pas)
+    }
+    #[test]
+    fn bgp_entry_insert() {
+        let mut pa_table = PathAttributeTable::new();
+        let pa_entry = build_pa_entry();
+
+        // Insert into pa entry table to get ref then build a new bgp_entry
+        let bgp_entry = BgpTableEntry::new(pa_table.insert(pa_entry));
+
+        // Verify entry inserted into bgp table entry
+        assert_eq!(bgp_entry.paths.len(), 1);
+    }
+    #[test]
+    fn bgp_entry_is_in() {
+        let mut pa_table = PathAttributeTable::new();
+        let pa_entry = build_pa_entry();
+        let pa_entry_c = pa_entry.clone();
+
+        // Insert into pa entry table to get ref then build a new bgp_entry
+        let bgp_entry = BgpTableEntry::new(pa_table.insert(pa_entry));
+
+        // Verify entry inserted into bgp table entry matches
+        assert_eq!(bgp_entry.is_in(&pa_entry_c), true);
     }
 }
