@@ -129,7 +129,7 @@ impl PathAttributeTableEntry {
 }
 
 impl PartialOrd for PathAttributeTableEntry {
-    // Ordering for the full data structure is unnecessary (only need Eq), will reuse the implementation
+    // Ordering for the full data structure is unnecessary, will reuse the implementation
     // for DecisionProcessData
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         self.decision_data.partial_cmp(&other.decision_data)
@@ -601,5 +601,4 @@ mod tests {
         assert_eq!(bgp_entry.paths.len(), 2);
         assert_eq!(bgp_entry.bestpath(), &best_rc)
     }
-
 }
