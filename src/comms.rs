@@ -24,7 +24,8 @@ pub struct ReceivedRoutes {
     route_source: RouteSource,
     igp_cost: u64,
     path_attrs: Vec<PathAttr>,
-    routes: Vec<Route>
+    routes: Option<Vec<Route>>,
+    withdrawn_routes: Option<Vec<Route>>
 }
 // Associated Functions
 impl ReceivedRoutes {
@@ -38,7 +39,8 @@ impl ReceivedRoutes {
                route_source: RouteSource,
                igp_cost: u64,
                path_attrs: Vec<PathAttr>,
-               routes: Vec<Route> ) -> Self {
+               routes: Option<Vec<Route>>,
+               withdrawn_routes: Option<Vec<Route>> ) -> Self {
         Self {
             peer_id,
             peer_addr,
@@ -50,7 +52,8 @@ impl ReceivedRoutes {
             route_source,
             igp_cost,
             path_attrs,
-            routes
+            routes,
+            withdrawn_routes
         }
     }
 }
@@ -86,8 +89,11 @@ impl ReceivedRoutes {
     pub fn path_attrs(&self) -> Vec<PathAttr>{
         self.path_attrs.clone()
     }
-    pub fn routes(&self) -> Vec<Route> {
+    pub fn routes(&self) -> Option<Vec<Route>> {
         self.routes.clone()
+    }
+    pub fn withdrawn_routes(&self) -> Option<Vec<Route>> {
+        self.withdrawn_routes.clone()
     }
 }
 
@@ -103,10 +109,11 @@ pub (crate) struct MockReceivedRoutesBuilder {
     route_source: RouteSource,
     igp_cost: u64,
     path_attrs: Vec<PathAttr>,
-    routes: Vec<Route>
+    routes: Option<Vec<Route>>,
+    withdrawn_routes: Option<Vec<Route>>
 }
  impl MockReceivedRoutesBuilder {
-    pub fn new(routes: Vec<Route>, pa: Vec<PathAttr>) -> Self {
+    pub fn new(routes: Option<Vec<Route>>, withdrawn_routes: Option<Vec<Route>>, pa: Vec<PathAttr>) -> Self {
         Self {
                 peer_id: Ipv4Addr::new(192, 168, 1, 1),
                 peer_addr: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
@@ -118,6 +125,7 @@ pub (crate) struct MockReceivedRoutesBuilder {
                 route_source: RouteSource::Ebgp,
                 igp_cost: 1000,
                 path_attrs: pa,
+                withdrawn_routes,
                 routes
         }
     }
@@ -169,6 +177,8 @@ pub (crate) struct MockReceivedRoutesBuilder {
             self.route_source,
             self.igp_cost,
             self.path_attrs,
-            self.routes)
+            self.routes,
+            self.withdrawn_routes,
+        )
     }
  }
