@@ -11,7 +11,7 @@ use std::{
 
 use hashbrown::HashSet;
 
-use crate::{message_types::{Nlri, Update, Open},
+use crate::{message_types::{Nlri, Update, Open, Route},
             path_attrs::*,
             comms::ReceivedRoutes,
         };
@@ -189,7 +189,7 @@ impl PathAttributeTable {
 }
 
 // The BinaryHeap with reverse effectively makes it a min heap. Want the paths to be sorted based
-// on their Ordering. The best path evaluates to "less than"
+// on their Ordering. The best path evaluates to the "smallest" path based on Ordering.
 struct BgpTableEntry {
     paths: BinaryHeap<Reverse<Rc<PathAttributeTableEntry>>>,
 }
@@ -236,6 +236,10 @@ impl BgpTableEntry {
         .0
 
     }
+    fn remove(&mut self, path: &PathAttributeTableEntry) {
+        // Removes a path from the BGP Table Entry
+        self.paths.retain(|x| x.0.as_ref() != path);
+    }
     fn len(&self) -> usize {
         self.paths.len()
     }
@@ -263,8 +267,7 @@ impl BgpTable<Ipv4Addr> {
     }
     
     pub fn walk(&mut self, payload: ReceivedRoutes) {
-        // Inserts paths from an Update message into the BGP table and, implicitly, in the
-        // associated path attribute table if necessary.
+        // Inserts (and/or removes) paths received in an Update message to/from the BGP table.
 
         let ddata = DecisionProcessData::new(&payload);
 
@@ -274,24 +277,48 @@ impl BgpTable<Ipv4Addr> {
         let pat_entry_ref = self.pa_table.insert(pat_entry);
         
 
-        // Iterate through the table and try to match on each destination.
-        for dest in payload.routes().iter() {
-            match (dest.prefix(), dest.length()) {
-                (IpAddr::V4(addr), len) => {
-                    match self.table.get_mut(&(addr, len)) {
-                        // Update existing entry with the ref
-                        Some(bgp_table_entry) => {
-                            bgp_table_entry.insert(pat_entry_ref);
-                        },
+        // First check to see if there are any new routes to be added. If not, immediately check to
+        // see if any routes need to be withdrawn.
+        if let Some(new_paths) = payload.routes() {
+        // Iterate through the routes and try to match on each destination.
+            for dest in new_paths.iter() {
+                match (dest.prefix(), dest.length()) {
+                    (IpAddr::V4(addr), len) => {
+                        match self.table.get_mut(&(addr, len)) {
+                            // Update existing entry with the ref
+                            Some(bgp_table_entry) => {
+                                bgp_table_entry.insert(pat_entry_ref);
+                            },
 
-                        // Create a new entry and insert the ref
-                        None => {
-                            self.table.insert((addr, len), BgpTableEntry::new(pat_entry_ref));
-                         }
+                            // Create a new entry and insert the ref
+                            None => {
+                                self.table.insert((addr, len), BgpTableEntry::new(pat_entry_ref));
+                             }
+                        }
                     }
+                    _ => {eprint!("Unexpected V6 destination!")}
                 }
-                _ => {eprint!("Unexpected V6 destination!")}
             }
+        }
+        if let Some(del_paths) = payload.withdrawn_routes() {
+            for dest in del_paths.iter() {
+                match (dest.prefix(), dest.length()) {
+                    (IpAddr::V4(addr), len) => {
+                        match self.table.get_mut(&(addr, len)) {
+                            // If PAT entry matches, pull the route
+                            Some(bgp_table_entry) => {
+                                bgp_table_entry.remove(pat_entry_ref);
+                            },
+                            // Continue to next destination
+                            None => {
+                                continue;
+                             }
+                        }
+                    }
+                    _ => {eprint!("Unexpected V6 destination!")}
+                }
+            }
+
         }
 
         // Increment the table version
@@ -349,8 +376,8 @@ mod tests {
             RouteSource::Ebgp,
             1000,
             vec![pa, pa2],
-            generate_routes_v4(num_routes))
-
+            Some(generate_routes_v4(num_routes)),
+            None)
     }
     fn build_pa_entry(med_val: u32, origin: OriginValue) -> PathAttributeTableEntry {
         let pa = PathAttrBuilder::<Med>::new().metric(med_val).build();
@@ -749,8 +776,8 @@ mod tests {
 
         // Generate two different rx routes messages with the same information other than a different peer
         // id.
-        let rxr1 = MockReceivedRoutesBuilder::new(routes.clone(), pas.clone()).peer_id(peer1_id).build();
-        let rxr2 = MockReceivedRoutesBuilder::new(routes.clone(), pas.clone()).build();
+        let rxr1 = MockReceivedRoutesBuilder::new(Some(routes.clone()),None, pas.clone()).peer_id(peer1_id).build();
+        let rxr2 = MockReceivedRoutesBuilder::new(Some(routes.clone()), None, pas.clone()).build();
 
         // Create new BGP table
         let mut table = BgpTable::<Ipv4Addr>::new();
