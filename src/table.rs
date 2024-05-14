@@ -146,6 +146,9 @@ impl PathAttributeTableEntry {
             raw_path_attrs: raw_pas
         }
     }
+    pub fn get_pas(&self) -> Vec<PathAttr> {
+        self.raw_path_attrs.clone()
+    }
 }
 
 impl PartialOrd for PathAttributeTableEntry {
@@ -286,10 +289,16 @@ impl BgpTable<Ipv4Addr> {
         }
     }
     
-    pub fn walk(&mut self, payload: ReceivedRoutes) {
+    pub fn walk(&mut self, payload: ReceivedRoutes) -> (Vec<Route>, HashMap<Vec<PathAttr>, Vec<Route>>) {
         // Inserts (and/or removes) paths received in an Update message to/from the BGP table.
+        // The function returns Routes that can be withdrawn along with a container holding all
+        // the Nlri that would need to be advertised using different Update messages, based on changes
+        // to the BGP table.
 
         let ddata = DecisionProcessData::new(&payload);
+        let mut adv_routes:HashMap<Vec<PathAttr>, Vec<Route>> = HashMap::new();
+        let mut removed_routes: Vec<Route> = Vec::new();
+
 
         // Pre-emptively update the PAT and get the ref necessary to update BGP
         // table entries
@@ -301,7 +310,7 @@ impl BgpTable<Ipv4Addr> {
         // see if any routes need to be withdrawn. These two operations are logically separate, the intersection of
         // advertised and withdrawn routes for a given Update should be the empty set.
         if let Some(new_paths) = payload.routes() {
-        // Iterate through the routes and try to match on each destination.
+            // Iterate through the routes and try to match on each destination.
             for dest in new_paths.iter() {
                 match (dest.prefix(), dest.length()) {
                     (IpAddr::V4(addr), len) => {
@@ -309,11 +318,26 @@ impl BgpTable<Ipv4Addr> {
                             // Update existing entry with the ref
                             Some(bgp_table_entry) => {
                                 bgp_table_entry.insert(pat_entry_ref);
+                                // If the new entry is the bestpath, then add it to
+                                // the container to be advertised. Entry API is amazing! If the key exists,
+                                // append to the existing vec. Otherwise, create a new vec under this key and append
+                                // to it.
+                                if bgp_table_entry.bestpath() == pat_entry_ref {
+                                    adv_routes
+                                    .entry(pat_entry_ref.get_pas())
+                                    .and_modify(|v| v.push(Route::new(len, dest.prefix())))
+                                    .or_insert(vec![Route::new(len, dest.prefix())]);
+                                }
                             },
 
-                            // Create a new entry and insert the ref if it doesnt exist.
+                            // Create a new entry and insert the ref if it doesnt exist. Add to container
+                            // to be advertised.
                             None => {
                                 self.table.insert((addr, len), BgpTableEntry::new(pat_entry_ref));
+                                adv_routes
+                                .entry(pat_entry_ref.get_pas())
+                                .and_modify(|v| v.push(Route::new(len, dest.prefix())))
+                                .or_insert(vec![Route::new(len, dest.prefix())]);
                              }
                         }
                     }
@@ -321,17 +345,28 @@ impl BgpTable<Ipv4Addr> {
                 }
             }
         }
+
         if let Some(del_paths) = payload.withdrawn_routes() {
             for dest in del_paths.iter() {
                 match (dest.prefix(), dest.length()) {
                     (IpAddr::V4(addr), len) => {
                         match self.table.get_mut(&(addr, len)) {
                             // If PAT entry matches, pull the route. If resulting BGP Table Entry is empty, remove
-                            // from the BGP Table.
+                            // from the BGP Table and add to routes to be withdrawn. Also need to check to see if the bestpath has changed
+                            // as a result of removing the path. If so, add to advertised routes.
                             Some(bgp_table_entry) => {
+                                let was_best = if bgp_table_entry.bestpath() == pat_entry_ref {true} else {false};
+
                                 bgp_table_entry.remove(pat_entry_ref);
+
                                 if bgp_table_entry.is_empty() {
                                    _ = self.table.remove(&(addr, len));
+                                   removed_routes.push(Route::new(len, dest.prefix()))
+                                } else if was_best { // Get new bestpath, add to adv routes container
+                                    adv_routes
+                                    .entry(bgp_table_entry.bestpath().get_pas())
+                                    .and_modify(|v| v.push(Route::new(len, dest.prefix())))
+                                    .or_insert(vec![Route::new(len, dest.prefix())]);
                                 }
                             },
                             // Continue to next destination
@@ -350,6 +385,8 @@ impl BgpTable<Ipv4Addr> {
 
         // Increment the table version
         self.increment_version();
+
+        (removed_routes, adv_routes)
     }
 
 
@@ -775,7 +812,7 @@ mod tests {
 
         // Create table and add prefixes
         let mut table = BgpTable::<Ipv4Addr>::new();
-        table.walk(rxr);
+        _ = table.walk(rxr);
 
         // Now verify the number of paths/destinations/PAT entries
         assert_eq!(table.num_destinations(), routes.len());
@@ -807,8 +844,8 @@ mod tests {
         let mut table = BgpTable::<Ipv4Addr>::new();
 
         // Walk over routes and install into table
-        table.walk(rxr1);
-        table.walk(rxr2);
+        _ = table.walk(rxr1);
+        _ = table.walk(rxr2);
 
         assert_eq!(table.num_destinations(), routes.len());
         assert_eq!(table.num_pa_entries(), 2);
@@ -837,7 +874,7 @@ mod tests {
         let mut table = BgpTable::<Ipv4Addr>::new();
 
         // Walk over routes and install into table
-        table.walk(rxr_adv);
+        _ = table.walk(rxr_adv);
 
         // Should have 1000 destinations and only one PAT entry
         assert_eq!(table.num_destinations(), routes.len());
@@ -845,7 +882,7 @@ mod tests {
         assert_eq!(table.num_paths(), routes.len());
 
         // Now walk over the table and remove all the routes that were previously advertised
-        table.walk(rxr_withdrawn);
+        _ = table.walk(rxr_withdrawn);
 
         assert_eq!(table.num_destinations(), 0);
         assert_eq!(table.num_pa_entries(), 0);
@@ -878,8 +915,8 @@ mod tests {
         let mut table = BgpTable::<Ipv4Addr>::new();
 
         // Walk over routes and install into table
-        table.walk(rxr1_adv);
-        table.walk(rxr2_adv);
+        _ = table.walk(rxr1_adv);
+        _ = table.walk(rxr2_adv);
 
         // Should have 1000 destinations and only two PAT entry
         assert_eq!(table.num_destinations(), routes.len());
@@ -887,7 +924,7 @@ mod tests {
         assert_eq!(table.num_paths(), 2 * routes.len());
 
         // Now walk over the table and remove all the paths that were previously advertised in rxr1
-        table.walk(rxr1_withdrawn);
+        _ = table.walk(rxr1_withdrawn);
 
         assert_eq!(table.num_destinations(), routes.len());
         assert_eq!(table.num_pa_entries(), 1);
