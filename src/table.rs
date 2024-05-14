@@ -11,10 +11,13 @@ use std::{
 
 use hashbrown::HashSet;
 
-use crate::{message_types::{Nlri, Update}, path_attrs::*};
+use crate::{message_types::{Nlri, Update, Open},
+            path_attrs::*,
+            comms::ReceivedRoutes,
+        };
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
-pub (crate) enum RouteSource {
+pub(crate) enum RouteSource {
     Ebgp,
     Ibgp
 }
@@ -31,7 +34,7 @@ impl From<&RouteSource> for u8 {
 // This data structure is used to simplify comparisons between many candidate paths
 // to a destination as opposed to destructuring the raw path attribute data for each comparison.
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
-pub(crate) struct DecisionProcessData {
+struct DecisionProcessData {
     local_pref: Option<u32>,
     as_path_len: u8,
     last_as: u16,
@@ -44,8 +47,22 @@ pub(crate) struct DecisionProcessData {
 }
 
 impl DecisionProcessData {
-    // Not sure on the API here, set as todo
-    pub fn new() -> Self { todo!() }
+    // Naive approach here for now for testing, will most likely have
+    // a custom type that the table thread picks up that does much of this
+    // function's work. 
+    pub fn new(data: &ReceivedRoutes) -> Self {
+        Self {
+            local_pref: data.local_pref(),
+            as_path_len: data.as_path_len(),
+            last_as: data.last_as(),
+            origin: data.origin(),
+            med: data.med(),
+            route_souce: data.route_source(),
+            igp_cost: data.igp_cost(),
+            peer_id: data.peer_id(),
+            peer_addr: data.peer_addr()
+        }
+    }
 }
 
 // Implementing PartialOrd (and Ord, implicitly) for this data structure will be critical in
@@ -105,6 +122,7 @@ impl Ord for DecisionProcessData {
     }
 }
 
+
 // This is an entry in the Path Attribute Table. The goal is to have a data structure that contains
 // the raw Path Attribute data (for Update creation) while also containing a representation of the relevant
 // parameters necessary for running the Decision Process. This implies some data duplication, but since some PAs
@@ -144,7 +162,7 @@ impl Ord for PathAttributeTableEntry {
 
 // Want the Entry to be behind an Rc so that when no paths are pointing to it,
 // it can be cleaned out of the table.
-pub(crate) struct PathAttributeTable {
+struct PathAttributeTable {
     table: HashSet<Rc<PathAttributeTableEntry>>
 }
 impl PathAttributeTable {
@@ -216,6 +234,9 @@ impl BgpTableEntry {
         .0
 
     }
+    fn len(&self) -> usize {
+        self.paths.len()
+    }
 }
 
 // Will be generic over AFI (v4/v6)
@@ -225,15 +246,10 @@ pub(crate) struct BgpTable<A> {
     pa_table: PathAttributeTable,
 }
 impl<A> BgpTable<A> {
-    pub fn walk(&mut self, payload: Update) {
-        // Inserts paths from an Update message into the BGP table and, implicitly, in the
-        // associated path attribute table if necessary.
-
-        // First need to generate a DecisionProcessData structure
-        // based on the information.
-        // Second need to extract the PA vec from the Update message
-        todo!()
+    pub fn increment_version(&mut self) {
+        self.table_version += 1;
     }
+
 }  
 impl BgpTable<Ipv4Addr> {
     pub fn new() -> Self {
@@ -242,6 +258,58 @@ impl BgpTable<Ipv4Addr> {
             table_version: 0,
             pa_table: PathAttributeTable::new()
         }
+    }
+    
+    pub fn walk(&mut self, payload: ReceivedRoutes) {
+        // Inserts paths from an Update message into the BGP table and, implicitly, in the
+        // associated path attribute table if necessary.
+
+        // First need to generate a DecisionProcessData structure
+        // based on the information.
+        let ddata = DecisionProcessData::new(&payload);
+
+        // Pre-emptively update the PAT and get the ref necessary to update BGP
+        // table entries
+        let pat_entry = PathAttributeTableEntry::new(ddata, payload.path_attrs());
+        let pat_entry_ref = self.pa_table.insert(pat_entry);
+        
+
+        // Iterate through the table and try to match on each destination.
+        for dest in payload.routes().iter() {
+            match &dest.prefix() {
+                IpAddr::V4(addr) => {
+                    match self.table.get_mut(addr) {
+                        Some(bgp_table_entry) => {
+                            // Update existing entry with the ref
+                            bgp_table_entry.insert(pat_entry_ref);
+                        },
+                        None => {
+                            // Create a new entry and insert the ref
+                            self.table.insert(*addr, BgpTableEntry::new(pat_entry_ref));
+                         }
+                    }
+                }
+                IpAddr::V6(_) => {eprint!("Unexpected V6 destination!")}
+            }
+        }
+
+        // Increment the table version
+        self.increment_version();
+    }
+    pub fn num_paths(&self) -> usize {
+        // Returns number of PATHs in the BGP table, not number of destinations
+        self.table
+        .iter()
+        .map(|(_, entry)| entry.len())
+        .sum()
+    }
+    pub fn num_destinations(&self) -> usize {
+        // Returns number of destinations in the BGP table
+        self.table.len()
+    }
+
+    pub fn num_pa_entries(&self) -> usize {
+        self.pa_table.len()
     }
 }
 impl BgpTable<Ipv6Addr> {
@@ -256,8 +324,67 @@ impl BgpTable<Ipv6Addr> {
 
 #[cfg(test)]
 mod tests {
-    use rand::seq::SliceRandom;
+    use rand::{seq::SliceRandom, Rng};
+    use crate::message_types::Route;
+
     use super::*;
+
+
+    // Setup Functions
+    fn build_rx_routes(num_routes: usize) -> ReceivedRoutes {
+        let med = 1000;
+        let origin = OriginValue::Incomplete;
+        let pa = PathAttrBuilder::<Med>::new().metric(med).build();
+        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin).build();
+
+        ReceivedRoutes::new(
+            Ipv4Addr::new(192, 168, 1, 1),
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            65000,
+            Some(100),
+            5,
+            OriginValue::Igp,
+            1000,
+            RouteSource::Ebgp,
+            1000,
+            vec![pa, pa2],
+            generate_routes_v4(num_routes))
+
+    }
+    fn build_pa_entry(med_val: u32, origin: OriginValue) -> PathAttributeTableEntry {
+        let pa = PathAttrBuilder::<Med>::new().metric(med_val).build();
+        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin.clone()).build();
+        let mut raw_pas = vec![pa, pa2];
+        // Randomly shuffle the PA vector since it should be sorted deterministically by
+        // its generating function.
+        let mut rng = rand::thread_rng();
+        raw_pas.shuffle(&mut rng);
+
+        let ddata = DecisionProcessData {
+            local_pref: Some(100),
+            as_path_len: 1,
+            last_as: 65000,
+            origin: origin.into(),
+            med: med_val,
+            route_souce: RouteSource::Ebgp,
+            igp_cost: 0,
+            peer_addr: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
+            peer_id: Ipv4Addr::new(192, 168, 1, 1)
+        };
+        PathAttributeTableEntry::new(ddata, raw_pas)
+    }
+
+    fn generate_routes_v4(num_routes: usize) -> Vec<Route> {
+        let mut rng = rand::thread_rng();
+        let c = |_| {
+                let addr = Ipv4Addr::new(rng.gen_range(1..=223),
+                             rng.gen_range(0..=255),
+                             rng.gen_range(0..=255),
+                             rng.gen_range(0..=254));
+                Route::new(rng.gen_range(1..=32), IpAddr::V4(addr))
+        };
+        (1..=num_routes).map(c).collect()
+    }
 
     #[test]
     fn decision_data_cmp_lp() {
@@ -515,27 +642,9 @@ mod tests {
 
         assert!(candidate > best);
     }
-    fn build_pa_entry(med_val: u32, origin: OriginValue) -> PathAttributeTableEntry {
-        let pa = PathAttrBuilder::<Med>::new().metric(med_val).build();
-        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin.clone()).build();
-        let mut raw_pas = vec![pa, pa2];
-        // Randomly shuffle the PA vector since it should be sorted deterministically.
-        let mut rng = rand::thread_rng();
-        raw_pas.shuffle(&mut rng);
 
-        let ddata = DecisionProcessData {
-            local_pref: Some(100),
-            as_path_len: 1,
-            last_as: 65000,
-            origin: origin.into(),
-            med: med_val,
-            route_souce: RouteSource::Ebgp,
-            igp_cost: 0,
-            peer_addr: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
-            peer_id: Ipv4Addr::new(192, 168, 1, 1)
-        };
-        PathAttributeTableEntry::new(ddata, raw_pas)
-    }
+
+    // Path Attribute Table Tests
     #[test]
     fn test_pat_entry_eq () {
         let pate_1 = build_pa_entry(100, OriginValue::Igp);
@@ -558,6 +667,8 @@ mod tests {
         pa_table.remove_stale();
         assert_eq!(pa_table.len(), 1);
     }
+
+    // BGP Table Entry Tests
     #[test]
     fn bgp_entry_insert() {
         let mut pa_table = PathAttributeTable::new();
@@ -600,5 +711,23 @@ mod tests {
         let best_rc = Rc::new(best_pa_entry_c);
         assert_eq!(bgp_entry.paths.len(), 2);
         assert_eq!(bgp_entry.bestpath(), &best_rc)
+    }
+
+
+    // BGP Table Tests
+    #[test]
+    fn bgp_table_walk() {
+        // Generate ReceivedRoutes
+        let rxr = build_rx_routes(1000);
+
+        // Create new BGP table
+        let mut table = BgpTable::<Ipv4Addr>::new();
+
+        // Walk over routes and install into table
+        table.walk(rxr);
+
+        // Should have 1000 destinations and only one PAT entry
+        assert_eq!(table.num_destinations(), 1000);
+        assert_eq!(table.num_pa_entries(), 1)
     }
 }
