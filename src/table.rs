@@ -291,9 +291,12 @@ impl BgpTable<Ipv4Addr> {
     
     pub fn walk(&mut self, payload: ReceivedRoutes) -> (Vec<Route>, HashMap<Vec<PathAttr>, Vec<Route>>) {
         // Inserts (and/or removes) paths received in an Update message to/from the BGP table.
-        // The function returns Routes that can be withdrawn along with a container holding all
+        // The function returns routes that can be withdrawn along with a container holding all
         // the Nlri that would need to be advertised using different Update messages, based on changes
-        // to the BGP table.
+        // to the BGP table. Using Vec<PathAttr> as a key should be fine since the PAs are sorted
+        // deterministically in the PAT Entry, which is where they're pulled from, unchanged.
+
+        // TO-DO: Lots of repeated code in here, try to make less verbose and easier to read.
 
         let ddata = DecisionProcessData::new(&payload);
         let mut adv_routes:HashMap<Vec<PathAttr>, Vec<Route>> = HashMap::new();
@@ -307,15 +310,15 @@ impl BgpTable<Ipv4Addr> {
         
 
         // First check to see if there are any new routes to be added. If not, immediately check to
-        // see if any routes need to be withdrawn. These two operations are logically separate, the intersection of
-        // advertised and withdrawn routes for a given Update should be the empty set.
+        // see if any routes need to be withdrawn. These two operations are logically disjoint, the intersection of
+        // advertised and withdrawn routes from a given Update should be the empty set.
         if let Some(new_paths) = payload.routes() {
-            // Iterate through the routes and try to match on each destination.
+            // Iterate through the routes and and see if any entries exist in the BGP Table
             for dest in new_paths.iter() {
                 match (dest.prefix(), dest.length()) {
                     (IpAddr::V4(addr), len) => {
                         match self.table.get_mut(&(addr, len)) {
-                            // Update existing entry with the ref
+                            // Update existing entry with the PAT Entry ref
                             Some(bgp_table_entry) => {
                                 bgp_table_entry.insert(pat_entry_ref);
                                 // If the new entry is the bestpath, then add it to
@@ -334,6 +337,7 @@ impl BgpTable<Ipv4Addr> {
                             // to be advertised.
                             None => {
                                 self.table.insert((addr, len), BgpTableEntry::new(pat_entry_ref));
+
                                 adv_routes
                                 .entry(pat_entry_ref.get_pas())
                                 .and_modify(|v| v.push(Route::new(len, dest.prefix())))
@@ -352,8 +356,9 @@ impl BgpTable<Ipv4Addr> {
                     (IpAddr::V4(addr), len) => {
                         match self.table.get_mut(&(addr, len)) {
                             // If PAT entry matches, pull the route. If resulting BGP Table Entry is empty, remove
-                            // from the BGP Table and add to routes to be withdrawn. Also need to check to see if the bestpath has changed
-                            // as a result of removing the path. If so, add to advertised routes.
+                            // from the BGP Table and add to routes to be withdrawn. For non-empty entries that have been modified
+                            // need to check to see if the bestpath has changed as a result of removing the path.
+                            // If so, add to advertised routes.
                             Some(bgp_table_entry) => {
                                 let was_best = if bgp_table_entry.bestpath() == pat_entry_ref {true} else {false};
 
@@ -383,8 +388,10 @@ impl BgpTable<Ipv4Addr> {
         // Clean up the PA table
         self.pa_table.remove_stale();
 
-        // Increment the table version
-        self.increment_version();
+        // Increment the table version if the table changed.
+        if removed_routes.len() + adv_routes.len() > 0 {
+            self.increment_version();
+        }
 
         (removed_routes, adv_routes)
     }
