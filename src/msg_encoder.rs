@@ -186,7 +186,7 @@ impl UpdateSerializer {
         match self.msg.path_attrs_mut() {
             Some(vec) => {
                 for path_attr in vec.to_owned() {
-                    // Create RouteSerializer and serialize the route.
+                    // Create serializer and serialize the PathAttr.
                     let ps = PathAttrSerializer::new(path_attr);
                     self.buf.put(ps.serialize())
                 }
@@ -197,7 +197,7 @@ impl UpdateSerializer {
         match self.msg.nlri_mut() {
             Some(serial_vec) => {
                 for route in serial_vec {
-                    // Create RouteSerializer and serialize the route
+                    // Create RouteSerializer and serialize the Route
                     let rs = RouteSerializer::new(route);
                     self.buf.put(rs.serialize())
                 }
