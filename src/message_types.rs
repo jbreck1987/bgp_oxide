@@ -235,7 +235,7 @@ pub(crate) struct SerialVec<T>
     inner: Vec<T>
 }
 
-// Implementing Deref to pass through all the existing methods/traits
+// Implementing Deref(Mut) to pass through all the existing methods/traits
 // for Vec
 impl<T> Deref for SerialVec<T> {
     type Target = Vec<T>;
@@ -274,13 +274,8 @@ impl<T> Iterator for SerialVec<T> {
         self.inner.pop()
     }
 }
-//impl<T: Clone> SerialVec<T> {
-//    pub fn extend_from_slice(&mut self, other: &[T]) {
-//        self.inner.extend_from_slice(other)
-//    }
-//}
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Route {
     // RFC 4271 explicitly states that the prefixes are IP addresses.
     // Will use the std::net package for this
@@ -361,6 +356,8 @@ impl Update {
         self.total_path_attr_len
     }
     pub fn path_attrs(&self) -> Option<&[PathAttr]> {
+        // This function is ugly, so much indirection.
+        // TO-DO: Try to rework with less indirection.
         match &self.path_attrs {
             Some(x) => Some(x.as_slice()),
             None => None
