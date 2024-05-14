@@ -227,6 +227,9 @@ impl BgpTableEntry {
                 _ => true
             }
     }
+    fn is_empty(&self) -> bool {
+        self.paths.is_empty()
+    }
     fn bestpath(&self) -> &Rc<PathAttributeTableEntry> {
         // Returns the best path for this destination (aka top item in the heap)
         &self
@@ -255,6 +258,23 @@ impl<A> BgpTable<A> {
     pub fn increment_version(&mut self) {
         self.table_version += 1;
     }
+    
+    pub fn num_paths(&self) -> usize {
+        // Returns number of PATHs in the BGP table, not number of destinations
+        self.table
+        .iter()
+        .map(|(_, entry)| entry.len())
+        .sum()
+    }
+    
+    pub fn num_destinations(&self) -> usize {
+        // Returns number of destinations in the BGP table
+        self.table.len()
+    }
+
+    pub fn num_pa_entries(&self) -> usize {
+        self.pa_table.len()
+    }
 
 }  
 impl BgpTable<Ipv4Addr> {
@@ -278,7 +298,8 @@ impl BgpTable<Ipv4Addr> {
         
 
         // First check to see if there are any new routes to be added. If not, immediately check to
-        // see if any routes need to be withdrawn.
+        // see if any routes need to be withdrawn. These two operations are logically separate, the intersection of
+        // advertised and withdrawn routes for a given Update should be the empty set.
         if let Some(new_paths) = payload.routes() {
         // Iterate through the routes and try to match on each destination.
             for dest in new_paths.iter() {
@@ -290,7 +311,7 @@ impl BgpTable<Ipv4Addr> {
                                 bgp_table_entry.insert(pat_entry_ref);
                             },
 
-                            // Create a new entry and insert the ref
+                            // Create a new entry and insert the ref if it doesnt exist.
                             None => {
                                 self.table.insert((addr, len), BgpTableEntry::new(pat_entry_ref));
                              }
@@ -305,9 +326,13 @@ impl BgpTable<Ipv4Addr> {
                 match (dest.prefix(), dest.length()) {
                     (IpAddr::V4(addr), len) => {
                         match self.table.get_mut(&(addr, len)) {
-                            // If PAT entry matches, pull the route
+                            // If PAT entry matches, pull the route. If resulting BGP Table Entry is empty, remove
+                            // from the BGP Table.
                             Some(bgp_table_entry) => {
                                 bgp_table_entry.remove(pat_entry_ref);
+                                if bgp_table_entry.is_empty() {
+                                   _ = self.table.remove(&(addr, len));
+                                }
                             },
                             // Continue to next destination
                             None => {
@@ -320,25 +345,14 @@ impl BgpTable<Ipv4Addr> {
             }
 
         }
+        // Clean up the PA table
+        self.pa_table.remove_stale();
 
         // Increment the table version
         self.increment_version();
     }
-    pub fn num_paths(&self) -> usize {
-        // Returns number of PATHs in the BGP table, not number of destinations
-        self.table
-        .iter()
-        .map(|(_, entry)| entry.len())
-        .sum()
-    }
-    pub fn num_destinations(&self) -> usize {
-        // Returns number of destinations in the BGP table
-        self.table.len()
-    }
 
-    pub fn num_pa_entries(&self) -> usize {
-        self.pa_table.len()
-    }
+
 }
 impl BgpTable<Ipv6Addr> {
     pub fn new() -> Self {
@@ -744,24 +758,34 @@ mod tests {
 
     // BGP Table Tests
     #[test]
-    fn bgp_table_single_walk() {
-        // Generate ReceivedRoutes
-        let rxr = build_rx_routes(1000);
+    fn bgp_table_single_walk_add_only() {
+        // Generate routes and PAs, will be used for two separate peers to diversify BGP table
+        let med = 1000u32;
+        let origin = OriginValue::Incomplete;
+        let mut routes = generate_routes_v4(100000);
+        // Need to sort and dedup vec to know exact number of destinations
+        routes.sort();
+        routes.dedup();
+        let pa = PathAttrBuilder::<Med>::new().metric(med).build();
+        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin).build();
+        let pas = vec![pa, pa2];
+        
+        // Create the payload
+        let rxr = MockReceivedRoutesBuilder::new(Some(routes.clone()), None, pas.clone()).build();
 
-        // Create new BGP table
+        // Create table and add prefixes
         let mut table = BgpTable::<Ipv4Addr>::new();
-
-        // Walk over routes and install into table
         table.walk(rxr);
 
-        // Should have 1000 destinations and only one PAT entry
-        assert_eq!(table.num_destinations(), 1000);
+        // Now verify the number of paths/destinations/PAT entries
+        assert_eq!(table.num_destinations(), routes.len());
         assert_eq!(table.num_pa_entries(), 1);
-        assert_eq!(table.num_paths(), 1000);
+        assert_eq!(table.num_paths(), routes.len());
+
     }
 
     #[test]
-    fn bgp_table_walk_multi() {
+    fn bgp_table_walk_multi_add_only() {
         // Generate routes and PAs, will be used for two separate peers to diversify BGP table
         let med = 1000u32;
         let origin = OriginValue::Incomplete;
@@ -789,5 +813,84 @@ mod tests {
         assert_eq!(table.num_destinations(), routes.len());
         assert_eq!(table.num_pa_entries(), 2);
         assert_eq!(table.num_paths(), 2 * routes.len());
+    }
+
+    #[test]
+    fn bgp_table_single_walk_add_remove() {
+        // Generate routes and PAs, will be used for two separate peers to diversify BGP table
+        let med = 1000u32;
+        let origin = OriginValue::Incomplete;
+        let mut routes = generate_routes_v4(100000);
+        // Need to sort and dedup vec to know exact number of destinations
+        routes.sort();
+        routes.dedup();
+        let pa = PathAttrBuilder::<Med>::new().metric(med).build();
+        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin).build();
+        let pas = vec![pa, pa2];
+
+        // Generate two different rx routes messages with the same information other than a different peer
+        // id.
+        let rxr_adv = MockReceivedRoutesBuilder::new(Some(routes.clone()),None, pas.clone()).build();
+        let rxr_withdrawn = MockReceivedRoutesBuilder::new(None, Some(routes.clone()), pas.clone()).build();
+
+        // Create new BGP table
+        let mut table = BgpTable::<Ipv4Addr>::new();
+
+        // Walk over routes and install into table
+        table.walk(rxr_adv);
+
+        // Should have 1000 destinations and only one PAT entry
+        assert_eq!(table.num_destinations(), routes.len());
+        assert_eq!(table.num_pa_entries(), 1);
+        assert_eq!(table.num_paths(), routes.len());
+
+        // Now walk over the table and remove all the routes that were previously advertised
+        table.walk(rxr_withdrawn);
+
+        assert_eq!(table.num_destinations(), 0);
+        assert_eq!(table.num_pa_entries(), 0);
+        assert_eq!(table.num_paths(), 0);
+
+    }
+    #[test]
+    fn bgp_table_multi_walk_add_remove() {
+        // Generate routes and PAs, will be used for two separate peers to diversify BGP table
+        let med = 1000u32;
+        let origin = OriginValue::Incomplete;
+        let mut routes = generate_routes_v4(100000);
+        // Need to sort and dedup vec to know exact number of destinations
+        routes.sort();
+        routes.dedup();
+        let pa = PathAttrBuilder::<Med>::new().metric(med).build();
+        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin).build();
+        let pas = vec![pa, pa2];
+        let peer1_id = Ipv4Addr::new(10, 2, 2, 1);
+
+
+        // Generate two different rx routes messages with the same information other than a different peer
+        // id.
+        let rxr1_adv = MockReceivedRoutesBuilder::new(Some(routes.clone()),None, pas.clone()).build();
+        let rxr1_withdrawn = MockReceivedRoutesBuilder::new(None, Some(routes.clone()), pas.clone()).build();
+        let rxr2_adv = MockReceivedRoutesBuilder::new(Some(routes.clone()),None, pas.clone()).peer_id(peer1_id).build();
+
+
+        // Create new BGP table
+        let mut table = BgpTable::<Ipv4Addr>::new();
+
+        // Walk over routes and install into table
+        table.walk(rxr1_adv);
+        table.walk(rxr2_adv);
+
+        // Should have 1000 destinations and only two PAT entry
+        assert_eq!(table.num_destinations(), routes.len());
+        assert_eq!(table.num_pa_entries(), 2);
+        assert_eq!(table.num_paths(), 2 * routes.len());
+
+        // Now walk over the table and remove all the paths that were previously advertised in rxr1
+        table.walk(rxr1_withdrawn);
+
+        assert_eq!(table.num_destinations(), routes.len());
+        assert_eq!(table.num_pa_entries(), 1);
+        assert_eq!(table.num_paths(), routes.len());
     }
 }
