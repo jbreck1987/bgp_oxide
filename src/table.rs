@@ -264,8 +264,6 @@ impl BgpTable<Ipv4Addr> {
         // Inserts paths from an Update message into the BGP table and, implicitly, in the
         // associated path attribute table if necessary.
 
-        // First need to generate a DecisionProcessData structure
-        // based on the information.
         let ddata = DecisionProcessData::new(&payload);
 
         // Pre-emptively update the PAT and get the ref necessary to update BGP
@@ -325,7 +323,7 @@ impl BgpTable<Ipv6Addr> {
 #[cfg(test)]
 mod tests {
     use rand::{seq::SliceRandom, Rng};
-    use crate::message_types::Route;
+    use crate::{comms::MockReceivedRoutesBuilder, message_types::Route};
 
     use super::*;
 
@@ -716,7 +714,7 @@ mod tests {
 
     // BGP Table Tests
     #[test]
-    fn bgp_table_walk() {
+    fn bgp_table_single_walk() {
         // Generate ReceivedRoutes
         let rxr = build_rx_routes(1000);
 
@@ -728,6 +726,35 @@ mod tests {
 
         // Should have 1000 destinations and only one PAT entry
         assert_eq!(table.num_destinations(), 1000);
-        assert_eq!(table.num_pa_entries(), 1)
+        assert_eq!(table.num_pa_entries(), 1);
+        assert_eq!(table.num_paths(), 1000);
+    }
+
+    #[test]
+    fn bgp_table_walk_multi() {
+        // Generate routes and PAs, will be used for two separate peers to diversify BGP table
+        let med = 1000u32;
+        let origin = OriginValue::Incomplete;
+        let routes = generate_routes_v4(1000);
+        let pa = PathAttrBuilder::<Med>::new().metric(med).build();
+        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin).build();
+        let pas = vec![pa, pa2];
+        let peer1_id = Ipv4Addr::new(10, 2, 2, 1);
+
+        // Generate two different rx routes messages with the same information other than a different peer
+        // id.
+        let rxr1 = MockReceivedRoutesBuilder::new(routes.clone(), pas.clone()).peer_id(peer1_id).build();
+        let rxr2 = MockReceivedRoutesBuilder::new(routes.clone(), pas.clone()).build();
+
+        // Create new BGP table
+        let mut table = BgpTable::<Ipv4Addr>::new();
+
+        // Walk over routes and install into table
+        table.walk(rxr1);
+        table.walk(rxr2);
+
+        assert_eq!(table.num_destinations(), 1000);
+        assert_eq!(table.num_pa_entries(), 2);
+        assert_eq!(table.num_paths(), 2000);
     }
 }
