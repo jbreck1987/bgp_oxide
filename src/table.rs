@@ -16,6 +16,8 @@ use crate::{message_types::{Nlri, Update, Open},
             comms::ReceivedRoutes,
         };
 
+type PrefixLen = u8;
+
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub(crate) enum RouteSource {
     Ebgp,
@@ -124,7 +126,7 @@ impl Ord for DecisionProcessData {
 
 
 // This is an entry in the Path Attribute Table. The goal is to have a data structure that contains
-// the raw Path Attribute data (for Update creation) while also containing a representation of the relevant
+// the raw Path Attribute data (for Update creation) in addition to a representation of the relevant
 // parameters necessary for running the Decision Process. This implies some data duplication, but since some PAs
 // aren't relevant for the Decision Process (and one table entry can be pointed to by many routes), this seems
 // reasonable.
@@ -241,7 +243,7 @@ impl BgpTableEntry {
 
 // Will be generic over AFI (v4/v6)
 pub(crate) struct BgpTable<A> {
-    table: HashMap<A, BgpTableEntry>,
+    table: HashMap<(A, PrefixLen), BgpTableEntry>,
     table_version: usize,
     pa_table: PathAttributeTable,
 }
@@ -274,20 +276,21 @@ impl BgpTable<Ipv4Addr> {
 
         // Iterate through the table and try to match on each destination.
         for dest in payload.routes().iter() {
-            match &dest.prefix() {
-                IpAddr::V4(addr) => {
-                    match self.table.get_mut(addr) {
+            match (dest.prefix(), dest.length()) {
+                (IpAddr::V4(addr), len) => {
+                    match self.table.get_mut(&(addr, len)) {
+                        // Update existing entry with the ref
                         Some(bgp_table_entry) => {
-                            // Update existing entry with the ref
                             bgp_table_entry.insert(pat_entry_ref);
                         },
+
+                        // Create a new entry and insert the ref
                         None => {
-                            // Create a new entry and insert the ref
-                            self.table.insert(*addr, BgpTableEntry::new(pat_entry_ref));
+                            self.table.insert((addr, len), BgpTableEntry::new(pat_entry_ref));
                          }
                     }
                 }
-                IpAddr::V6(_) => {eprint!("Unexpected V6 destination!")}
+                _ => {eprint!("Unexpected V6 destination!")}
             }
         }
 
