@@ -3,7 +3,9 @@
 // This structure contains information for the BGP table to run the decision process
 // and install paths. This message is queued up after decoding a valid Update message.
 use crate::{
-    message_types::Route, path_attrs::{OriginValue, PathAttr}, table::RouteSource
+    message_types::Route,
+    path_attrs::{OriginValue, PathAttr},
+    table::RouteSource,
 };
 use std::net::{
     Ipv4Addr,
@@ -70,21 +72,21 @@ impl ReceivedRoutes {
        self.as_path_len 
     }
     pub fn origin(&self) -> u8 {
-        self.origin.into()
+        self.origin.clone().into()
     }
     pub fn med(&self) -> u32 {
         self.med
     }
     pub fn route_source(&self) -> RouteSource {
-        self.route_source
+        self.route_source.clone()
     }
     pub fn igp_cost(&self) -> u64 {
         self.igp_cost
     }
     pub fn path_attrs(&self) -> Vec<PathAttr>{
-        self.path_attrs
+        self.path_attrs.clone()
     }
     pub fn routes(&self) -> Vec<Route> {
-        self.routes
+        self.routes.clone()
     }
 }
