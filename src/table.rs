@@ -738,7 +738,10 @@ mod tests {
         // Generate routes and PAs, will be used for two separate peers to diversify BGP table
         let med = 1000u32;
         let origin = OriginValue::Incomplete;
-        let routes = generate_routes_v4(1000);
+        let mut routes = generate_routes_v4(100000);
+        // Need to sort and dedup vec to know exact number of destinations
+        routes.sort();
+        routes.dedup();
         let pa = PathAttrBuilder::<Med>::new().metric(med).build();
         let pa2 = PathAttrBuilder::<Origin>::new().origin(origin).build();
         let pas = vec![pa, pa2];
@@ -756,8 +759,8 @@ mod tests {
         table.walk(rxr1);
         table.walk(rxr2);
 
-        assert_eq!(table.num_destinations(), 1000);
+        assert_eq!(table.num_destinations(), routes.len());
         assert_eq!(table.num_pa_entries(), 2);
-        assert_eq!(table.num_paths(), 2000);
+        assert_eq!(table.num_paths(), 2 * routes.len());
     }
 }
