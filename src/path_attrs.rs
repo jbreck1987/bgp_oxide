@@ -14,6 +14,16 @@ use std::{
 
 use crate::message_types::ByteLen;
 
+
+// ** CONSTANTS **
+pub (crate) const ORIGIN: u8 = 1;
+pub (crate) const AS_PATH: u8 = 2;
+pub (crate) const NEXT_HOP: u8 = 3;
+pub (crate) const MED: u8 = 4;
+pub (crate) const LOCAL_PREF: u8 = 5;
+pub (crate) const ATOMIC_AGGREGATE: u8 = 6;
+pub (crate) const AGGREGATOR: u8 = 7;
+
 // Implement a basic PA error
 #[derive(Debug, PartialEq)]
 struct PathAttrError(String);
@@ -46,13 +56,13 @@ pub(crate) trait PAttr {
 }
 
 // Enum to flag whether a PA is Standard or Extended
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum PathAttrLen {
     Std(u8),
     Ext(u16),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PathAttr {
     // Attribute Flags
     attr_flags: u8,
@@ -103,13 +113,6 @@ impl PathAttr {
     }
 }
 impl ByteLen for PathAttr {
-   // // Attribute Flags
-   // attr_flags: u8,
-   // // Attribute Type Code
-   // attr_type_code: u8,
-   // // Attribute Length; All PAs will have a u16 for the length.
-   // attr_len: PathAttrLen,
-   // attr_value: Vec<u8>,
    fn byte_len(&self) -> usize {
         let attr_len: usize = match self.attr_len {
             PathAttrLen::Std(_) => 1,
