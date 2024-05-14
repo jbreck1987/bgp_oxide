@@ -149,6 +149,9 @@ impl PathAttributeTableEntry {
     pub fn get_pas(&self) -> Vec<PathAttr> {
         self.raw_path_attrs.clone()
     }
+    pub fn peer_id(&self) -> Ipv4Addr {
+        self.decision_data.peer_id
+    }
 }
 
 impl PartialOrd for PathAttributeTableEntry {
@@ -243,8 +246,8 @@ impl BgpTableEntry {
 
     }
     fn remove(&mut self, path: &PathAttributeTableEntry) {
-        // Removes a path from the BGP Table Entry
-        self.paths.retain(|x| x.0.as_ref() != path);
+        // Removes a path from the BGP Table Entry as long as the peer IDs match. RFC 4271, Pg. 20.
+        self.paths.retain(|x| x.0.as_ref().peer_id() != path.peer_id());
     }
     fn len(&self) -> usize {
         self.paths.len()
@@ -358,9 +361,9 @@ impl BgpTable<Ipv4Addr> {
                             // If PAT entry matches, pull the route. If resulting BGP Table Entry is empty, remove
                             // from the BGP Table and add to routes to be withdrawn. For non-empty entries that have been modified
                             // need to check to see if the bestpath has changed as a result of removing the path.
-                            // If so, add to advertised routes.
+                            // If so, add to advertised routes. We only need to match the peer here, no other attributes (per RFC).
                             Some(bgp_table_entry) => {
-                                let was_best = if bgp_table_entry.bestpath() == pat_entry_ref {true} else {false};
+                                let was_best = if bgp_table_entry.bestpath().peer_id() == pat_entry_ref.peer_id() {true} else {false};
 
                                 bgp_table_entry.remove(pat_entry_ref);
 
