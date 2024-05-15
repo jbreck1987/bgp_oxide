@@ -283,6 +283,8 @@ impl AdvertisedRoutes<Ipv4Addr> {
     }
 }
 // Will be generic over AFI (v4/v6)
+// TO-DO: Think about how aggregation can be implemented. Maybe add a suppressed field in BGP Table Entry?
+// Could potentially create a radix tree from all the destinations and use this to determine which should be suppressed?
 pub(crate) struct BgpTable<A> {
     table: HashMap<(A, PrefixLen), BgpTableEntry>,
     table_version: usize,
