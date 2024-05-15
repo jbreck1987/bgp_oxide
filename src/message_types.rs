@@ -293,8 +293,18 @@ impl Route {
     pub fn length(&self) -> u8 {
         self.length
     }
-    pub fn prefix(&self) -> IpAddr {
-        self.prefix
+    pub fn prefix_v4(&self) -> Option<Ipv4Addr> {
+        match self.prefix {
+            IpAddr::V4(addr) => Some(addr),
+            _ => None
+        }
+    }
+    pub fn prefix_v6(&self) -> Option<Ipv6Addr> {
+        match self.prefix {
+            IpAddr::V6(addr) => Some(addr),
+            _ => None
+            
+        }
     }
 }
 
