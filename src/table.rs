@@ -274,7 +274,8 @@ impl<T> AdvertisedRoutes<T> {
 impl AdvertisedRoutes<Ipv4Addr> {
     fn entry(&mut self, key: Vec<PathAttr>, prefix: Ipv4Addr, prefix_len: u8) {
         // Abstracts away the machinery of the entry API.
-        // Adds or updates a given Key/Value combo.
+        // Adds or updates a given Key/Value combo. Using Vec<PathAttr> as a key should be fine since the PAs are sorted
+        // deterministically in the PAT Entry, which is where they're pulled from, unchanged.
         let addr = IpAddr::V4(prefix);
         self.routes
         .entry(key)
@@ -326,8 +327,7 @@ impl BgpTable<Ipv4Addr> {
         // Inserts (and/or removes) paths received in an Update message to/from the BGP table.
         // The function returns routes that can be withdrawn along with a container holding all
         // the Nlri that would need to be advertised using different Update messages, based on changes
-        // to the BGP table. Using Vec<PathAttr> as a key should be fine since the PAs are sorted
-        // deterministically in the PAT Entry, which is where they're pulled from, unchanged.
+        // to the BGP table. 
 
         let ddata = DecisionProcessData::new(&payload);
         let mut adv_routes: AdvertisedRoutes<Ipv4Addr> = AdvertisedRoutes::new();
