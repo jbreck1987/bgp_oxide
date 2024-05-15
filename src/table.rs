@@ -1,9 +1,14 @@
 // Holds logic for the BGP RIBs and Decision Process
 
 use std::{
-    cmp::{self, Reverse}, collections::{BinaryHeap, HashMap}, hash::{Hash, Hasher}, marker::PhantomData, net::{IpAddr, Ipv4Addr, Ipv6Addr}, rc::Rc
+    cmp::{self, Reverse},
+    collections::{BinaryHeap, HashMap},
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    rc::Rc
 };
-
+// Using hashbrown due to entry API
 use hashbrown::HashSet;
 
 use crate::{message_types::{Nlri, Update, Open, Route},
@@ -121,7 +126,7 @@ impl Ord for DecisionProcessData {
 
 
 // This is an entry in the Path Attribute Table. The goal is to have a data structure that contains
-// the raw Path Attribute data (for Update creation) in addition to a representation of the relevant
+// the raw Path Attribute data (for easy Update creation) in addition to a representation of the relevant
 // parameters necessary for running the Decision Process. This implies some data duplication, but since some PAs
 // aren't relevant for the Decision Process (and one table entry can be pointed to by many routes), this seems
 // reasonable.
@@ -250,7 +255,7 @@ impl BgpTableEntry {
 }
 
 // Struct to house prefixes generated from a BGP Table walk
-//for future UPDATE message creation
+// for future UPDATE message creation
 struct AdvertisedRoutes<T> {
     _marker: PhantomData<T>,
     routes: HashMap<Vec<PathAttr>, Vec<Route>>
@@ -261,6 +266,9 @@ impl<T> AdvertisedRoutes<T> {
     }
     fn len(&self) -> usize {
         self.routes.len()
+    }
+    fn routes(&self) -> &HashMap<Vec<PathAttr>, Vec<Route>> {
+        &self.routes
     }
 }
 impl AdvertisedRoutes<Ipv4Addr> {
@@ -319,7 +327,7 @@ impl BgpTable<Ipv4Addr> {
         // to the BGP table. Using Vec<PathAttr> as a key should be fine since the PAs are sorted
         // deterministically in the PAT Entry, which is where they're pulled from, unchanged.
 
-        // TO-DO: Lots of repeated code in here, try to make less verbose and easier to read.
+        // TO-DO: Try to use more functional style
 
         let ddata = DecisionProcessData::new(&payload);
         let mut adv_routes: AdvertisedRoutes<Ipv4Addr> = AdvertisedRoutes::new();
@@ -428,26 +436,7 @@ mod tests {
 
 
     // Setup Functions
-    fn build_rx_routes(num_routes: usize) -> ReceivedRoutes {
-        let med = 1000;
-        let origin = OriginValue::Incomplete;
-        let pa = PathAttrBuilder::<Med>::new().metric(med).build();
-        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin).build();
-
-        ReceivedRoutes::new(
-            Ipv4Addr::new(192, 168, 1, 1),
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-            65000,
-            Some(100),
-            5,
-            OriginValue::Igp,
-            1000,
-            RouteSource::Ebgp,
-            1000,
-            vec![pa, pa2],
-            Some(generate_routes_v4(num_routes)),
-            None)
-    }
+    
     fn build_pa_entry(med_val: u32, origin: OriginValue) -> PathAttributeTableEntry {
         let pa = PathAttrBuilder::<Med>::new().metric(med_val).build();
         let pa2 = PathAttrBuilder::<Origin>::new().origin(origin.clone()).build();
@@ -947,5 +936,35 @@ mod tests {
         assert_eq!(table.num_destinations(), routes.len());
         assert_eq!(table.num_pa_entries(), 1);
         assert_eq!(table.num_paths(), routes.len());
+    }
+    #[test]
+    fn bgp_table_adv_routes_single_pa() {
+        // Will test adv routes output when only
+        // expecting the AdvertisedRoutes struct to have length 1
+        // (aka only one Update message to be created).
+        
+        // Generate route and PA
+        let med = 1000u32;
+        let origin = OriginValue::Incomplete;
+        let mut routes = generate_routes_v4(100);
+        // Need to sort and dedup vec to know exact number of destinations
+        routes.sort();
+        routes.dedup();
+        let pa = PathAttrBuilder::<Med>::new().metric(med).build();
+        let pa2 = PathAttrBuilder::<Origin>::new().origin(origin).build();
+        let pas = vec![pa, pa2];
+
+        // Generate payload and table and add routes to the table
+        let rxr = MockReceivedRoutesBuilder::new(Some(routes.clone()),None, pas.clone()).build();
+        let mut table = BgpTable::<Ipv4Addr>::new();
+        let (_, adv_routes) = table.walk(rxr);
+
+        assert_eq!(adv_routes.len(), 1);
+        for (k, v) in adv_routes.routes().iter() {
+            assert_eq!(k[0].attr_type_code(), 1); // Checking vec sorting
+            assert_eq!(k[1].attr_type_code(), 4); // Checking vec sorting
+            assert_eq!(v.len(), routes.len());
+        }
+
     }
 }
