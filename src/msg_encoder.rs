@@ -115,9 +115,9 @@ impl RouteSerializer {
     }
     pub fn serialize(mut self) -> BytesMut {
         self.buf.put_u8(self.msg.length());
-        match self.msg.prefix() {
-            IpAddr::V4(x) => self.buf.put(x.octets().as_slice()),
-            IpAddr::V6(x) => self.buf.put(x.octets().as_slice()),
+        match self.msg.prefix_v4() {
+            Some(addr) => self.buf.put(addr.octets().as_slice()),
+            None => self.buf.put(self.msg.prefix_v6().unwrap().octets().as_slice()),
         }
         self.buf
     }
