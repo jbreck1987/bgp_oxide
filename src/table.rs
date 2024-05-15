@@ -1,12 +1,7 @@
 // Holds logic for the BGP RIBs and Decision Process
 
 use std::{
-    cmp,
-    cmp::Reverse,
-    collections::{HashMap, BinaryHeap},
-    hash::{Hash, Hasher},
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    rc::Rc,
+    cmp::{self, Reverse}, collections::{BinaryHeap, HashMap}, hash::{Hash, Hasher}, marker::PhantomData, net::{IpAddr, Ipv4Addr, Ipv6Addr}, rc::Rc
 };
 
 use hashbrown::HashSet;
@@ -254,6 +249,31 @@ impl BgpTableEntry {
     }
 }
 
+// Struct to house prefixes generated from a BGP Table walk
+//for future UPDATE message creation
+struct AdvertisedRoutes<T> {
+    _marker: PhantomData<T>,
+    routes: HashMap<Vec<PathAttr>, Vec<Route>>
+}
+impl<T> AdvertisedRoutes<T> {
+    fn new() -> Self {
+        Self {_marker: PhantomData, routes: HashMap::new() }
+    }
+    fn len(&self) -> usize {
+        self.routes.len()
+    }
+}
+impl AdvertisedRoutes<Ipv4Addr> {
+    fn entry(&mut self, key: Vec<PathAttr>, prefix: Ipv4Addr, prefix_len: u8) {
+        // Abstracts away the machinery of the entry API.
+        // Adds or updates a given Key/Value combo.
+        let addr = IpAddr::V4(prefix);
+        self.routes
+        .entry(key)
+        .and_modify(|v| v.push(Route::new(prefix_len, addr)))
+        .or_insert(vec![Route::new(prefix_len, addr)]);
+    }
+}
 // Will be generic over AFI (v4/v6)
 pub(crate) struct BgpTable<A> {
     table: HashMap<(A, PrefixLen), BgpTableEntry>,
@@ -292,7 +312,7 @@ impl BgpTable<Ipv4Addr> {
         }
     }
     
-    pub fn walk(&mut self, payload: ReceivedRoutes) -> (Vec<Route>, HashMap<Vec<PathAttr>, Vec<Route>>) {
+    pub fn walk(&mut self, payload: ReceivedRoutes) -> (Vec<Route>, AdvertisedRoutes<Ipv4Addr>) {
         // Inserts (and/or removes) paths received in an Update message to/from the BGP table.
         // The function returns routes that can be withdrawn along with a container holding all
         // the Nlri that would need to be advertised using different Update messages, based on changes
@@ -302,7 +322,7 @@ impl BgpTable<Ipv4Addr> {
         // TO-DO: Lots of repeated code in here, try to make less verbose and easier to read.
 
         let ddata = DecisionProcessData::new(&payload);
-        let mut adv_routes:HashMap<Vec<PathAttr>, Vec<Route>> = HashMap::new();
+        let mut adv_routes: AdvertisedRoutes<Ipv4Addr> = AdvertisedRoutes::new();
         let mut removed_routes: Vec<Route> = Vec::new();
 
 
@@ -312,7 +332,7 @@ impl BgpTable<Ipv4Addr> {
         let pat_entry_ref = self.pa_table.insert(pat_entry);
         
 
-        // First check to see if there are any new routes to be added. If not, immediately check to
+        // First check to see if there are any new routes to be added to table. If not, immediately check to
         // see if any routes need to be withdrawn. These two operations are logically disjoint, the intersection of
         // advertised and withdrawn routes from a given Update should be the empty set.
         if let Some(new_paths) = payload.routes() {
@@ -325,14 +345,9 @@ impl BgpTable<Ipv4Addr> {
                             Some(bgp_table_entry) => {
                                 bgp_table_entry.insert(pat_entry_ref);
                                 // If the new entry is the bestpath, then add it to
-                                // the container to be advertised. Entry API is amazing! If the key exists,
-                                // append to the existing vec. Otherwise, create a new vec under this key and append
-                                // to it.
+                                // the container to be advertised. Entry API is amazing!
                                 if bgp_table_entry.bestpath() == pat_entry_ref {
-                                    adv_routes
-                                    .entry(pat_entry_ref.get_pas())
-                                    .and_modify(|v| v.push(Route::new(len, dest.prefix())))
-                                    .or_insert(vec![Route::new(len, dest.prefix())]);
+                                    adv_routes.entry(pat_entry_ref.get_pas(), addr, len);
                                 }
                             },
 
@@ -340,11 +355,7 @@ impl BgpTable<Ipv4Addr> {
                             // to be advertised.
                             None => {
                                 self.table.insert((addr, len), BgpTableEntry::new(pat_entry_ref));
-
-                                adv_routes
-                                .entry(pat_entry_ref.get_pas())
-                                .and_modify(|v| v.push(Route::new(len, dest.prefix())))
-                                .or_insert(vec![Route::new(len, dest.prefix())]);
+                                adv_routes.entry(pat_entry_ref.get_pas(), addr, len);
                              }
                         }
                     }
@@ -371,10 +382,7 @@ impl BgpTable<Ipv4Addr> {
                                    _ = self.table.remove(&(addr, len));
                                    removed_routes.push(Route::new(len, dest.prefix()))
                                 } else if was_best { // Get new bestpath, add to adv routes container
-                                    adv_routes
-                                    .entry(bgp_table_entry.bestpath().get_pas())
-                                    .and_modify(|v| v.push(Route::new(len, dest.prefix())))
-                                    .or_insert(vec![Route::new(len, dest.prefix())]);
+                                    adv_routes.entry(bgp_table_entry.bestpath().get_pas(), addr, len);
                                 }
                             },
                             // Continue to next destination
