@@ -329,8 +329,6 @@ impl BgpTable<Ipv4Addr> {
         // to the BGP table. Using Vec<PathAttr> as a key should be fine since the PAs are sorted
         // deterministically in the PAT Entry, which is where they're pulled from, unchanged.
 
-        // TO-DO: Try to use more functional style
-
         let ddata = DecisionProcessData::new(&payload);
         let mut adv_routes: AdvertisedRoutes<Ipv4Addr> = AdvertisedRoutes::new();
         let mut removed_routes: Vec<Route> = Vec::new();
@@ -346,64 +344,61 @@ impl BgpTable<Ipv4Addr> {
         // see if any routes need to be withdrawn. These two operations are logically disjoint, the intersection of
         // advertised and withdrawn routes from a given Update should be the empty set.
         if let Some(new_paths) = payload.routes() {
-            // Iterate through the routes and and see if any entries exist in the BGP Table
-            for dest in new_paths.iter() {
-                match (dest.prefix(), dest.length()) {
-                    (IpAddr::V4(addr), len) => {
-                        match self.table.get_mut(&(addr, len)) {
-                            // Update existing entry with the PAT Entry ref
-                            Some(bgp_table_entry) => {
-                                bgp_table_entry.insert(pat_entry_ref);
-                                // If the new entry is the bestpath, then add it to
-                                // the container to be advertised. Entry API is amazing!
-                                if bgp_table_entry.bestpath() == pat_entry_ref {
-                                    adv_routes.entry(pat_entry_ref.get_pas(), addr, len);
-                                }
-                            },
-
-                            // Create a new entry and insert the ref if it doesnt exist. Add to container
-                            // to be advertised.
-                            None => {
-                                self.table.insert((addr, len), BgpTableEntry::new(pat_entry_ref));
-                                adv_routes.entry(pat_entry_ref.get_pas(), addr, len);
-                             }
+            new_paths
+            .iter()
+            .filter(|dest| dest.prefix_v4().is_some()) // only allow v4
+            .for_each(|dest| {
+                match self.table.get_mut(&(dest.prefix_v4().expect("Filter should only allow v4 routes"), dest.length())) {
+                    // If the BGP table entry exists, add path to it
+                    Some(bgp_table_entry) => {
+                        bgp_table_entry.insert(pat_entry_ref);
+                        // If the new entry is the bestpath, add it to
+                        // the container to be advertised. Entry API is amazing!
+                        if bgp_table_entry.bestpath() == pat_entry_ref {
+                            adv_routes.entry(pat_entry_ref.get_pas(), dest.prefix_v4().unwrap(), dest.length());
                         }
+                    },
+                    // Otherwise, create a new entry and insert the ref. Add to container
+                    // to be advertised.
+                    None => {
+                        self.table.insert((dest.prefix_v4().unwrap(), dest.length()), BgpTableEntry::new(pat_entry_ref));
+                        adv_routes.entry(pat_entry_ref.get_pas(), dest.prefix_v4().unwrap(), dest.length());
+
                     }
-                    _ => {eprint!("Unexpected V6 destination!")}
                 }
-            }
+            })
         }
 
         if let Some(del_paths) = payload.withdrawn_routes() {
-            for dest in del_paths.iter() {
-                match (dest.prefix(), dest.length()) {
-                    (IpAddr::V4(addr), len) => {
-                        match self.table.get_mut(&(addr, len)) {
-                            // If PAT entry matches, pull the route. If resulting BGP Table Entry is empty, remove
-                            // from the BGP Table and add to routes to be withdrawn. For non-empty entries that have been modified
-                            // need to check to see if the bestpath has changed as a result of removing the path.
-                            // If so, add to advertised routes. We only need to match the peer here, no other attributes (per RFC).
-                            Some(bgp_table_entry) => {
-                                let was_best = if bgp_table_entry.bestpath().peer_id() == pat_entry_ref.peer_id() {true} else {false};
-
-                                bgp_table_entry.remove(pat_entry_ref);
-
-                                if bgp_table_entry.is_empty() {
-                                   _ = self.table.remove(&(addr, len));
-                                   removed_routes.push(Route::new(len, dest.prefix()))
-                                } else if was_best { // Get new bestpath, add to adv routes container
-                                    adv_routes.entry(bgp_table_entry.bestpath().get_pas(), addr, len);
-                                }
-                            },
-                            // Continue to next destination
-                            None => {
-                                continue;
-                             }
+            del_paths
+            .iter()
+            .filter(|dest| dest.prefix_v4().is_some()) // Only allow v4
+            .for_each(|dest| {
+                match self.table.get_mut(&(dest.prefix_v4().expect("Filter should only allow v4 routes"), dest.length())) {
+                    // Check to see if destination is in table
+                    Some(bgp_table_entry) => {
+                        // Check to see if path to be removed is currently the bestpath. RFC 4271, Pg. 20
+                        // states that only need to match on peer.
+                        let was_best = if bgp_table_entry.bestpath().peer_id() == pat_entry_ref.peer_id() {
+                            true
+                        } else {false};
+                        // Remove the path
+                        bgp_table_entry.remove(pat_entry_ref);
+                        // If resulting BGP table entry is empty, remove from table and add destination
+                        // to routes to be withdrawn from peers.
+                        if bgp_table_entry.is_empty() {
+                           _ = self.table.remove(&(dest.prefix_v4().unwrap(), dest.length()));
+                           removed_routes.push(Route::new(dest.length(), IpAddr::V4(dest.prefix_v4().unwrap())))
+                        } else if was_best { // Otherwise, if new bestpath, add to adv routes container
+                            adv_routes.entry(bgp_table_entry.bestpath().get_pas(), dest.prefix_v4().unwrap(), dest.length());
                         }
+                    },
+                    // Do nothing in None case
+                    None => {
+                        ();
                     }
-                    _ => {eprint!("Unexpected V6 destination!")}
                 }
-            }
+            });
 
         }
         // Clean up the PA table
@@ -416,8 +411,6 @@ impl BgpTable<Ipv4Addr> {
 
         (removed_routes, adv_routes)
     }
-
-
 }
 impl BgpTable<Ipv6Addr> {
     pub fn new() -> Self {
