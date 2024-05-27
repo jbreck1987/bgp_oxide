@@ -19,6 +19,9 @@ use crate::{
         Med}
 };
 
+use serde::{Serialize, Deserialize};
+use bgp4_serde::to_bytes;
+
 // Definitions for the basic message types in BGP.
 static OPEN_VALUE: u8 = 1;
 static UPDATE_VALUE: u8 = 2;
@@ -27,7 +30,7 @@ static NOT_VALUE: u8 = 4;
 
 type KeepAlive = Header;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Header {
      marker: [u8; 16],
     // Limited to 16 bits
@@ -444,6 +447,8 @@ impl UpdateBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::{f32::consts::E, sync::Arc};
+
     use crate::path_attrs::{self, PaBuilder};
 
     use super::*;
@@ -455,6 +460,26 @@ mod tests {
         assert_eq!(cell.borrow().length, 100);
         assert_eq!(cell.borrow().marker, [1u8; 16]);
         assert_eq!(cell.borrow().message_type, 1u8);
+    }
+    #[test]
+    fn serialize_header_open() {
+        let header = Header::new(100, MessageType::Open);
+        let buf = to_bytes(header).unwrap();
+        // Check total length first; 19 bytes
+        assert_eq!(buf.len(), 19);
+
+        // Check marker
+        let extracted_marker = buf.get(0..16).unwrap();
+        assert_eq!(&[1u8; 16], extracted_marker);
+    
+        // Check Length
+        let extracted_length = buf.get(16..18).unwrap();
+        assert_eq!(100u16.to_be_bytes(), extracted_length);
+
+        // Check Message type
+        let extracted_msg_type = buf.get(18).unwrap();
+        assert_eq!(OPEN_VALUE, *extracted_msg_type);
+
     }
     #[test]
     fn build_header_update() {
