@@ -353,21 +353,21 @@ impl BgpTable<Ipv4Addr> {
             .iter()
             .filter(|dest| dest.prefix_v4().is_some()) // only allow v4
             .for_each(|dest| {
-                match self.table.get_mut(&(dest.prefix_v4().expect("Filter should only allow v4 routes"), dest.length())) {
+                match self.table.get_mut(&(dest.prefix_v4().expect("Filter should only allow v4 routes"), dest.prefix_len())) {
                     // If the BGP table entry exists, add path to it
                     Some(bgp_table_entry) => {
                         bgp_table_entry.insert(pat_entry_ref);
                         // If the new entry is the bestpath, add it to
                         // the container to be advertised. Entry API is amazing!
                         if bgp_table_entry.bestpath() == pat_entry_ref {
-                            adv_routes.entry(pat_entry_ref.get_pas(), dest.prefix_v4().unwrap(), dest.length());
+                            adv_routes.entry(pat_entry_ref.get_pas(), dest.prefix_v4().unwrap(), dest.prefix_len());
                         }
                     },
                     // Otherwise, create a new entry and insert the ref. Add to container
                     // to be advertised.
                     None => {
-                        self.table.insert((dest.prefix_v4().unwrap(), dest.length()), BgpTableEntry::new(pat_entry_ref));
-                        adv_routes.entry(pat_entry_ref.get_pas(), dest.prefix_v4().unwrap(), dest.length());
+                        self.table.insert((dest.prefix_v4().unwrap(), dest.prefix_len()), BgpTableEntry::new(pat_entry_ref));
+                        adv_routes.entry(pat_entry_ref.get_pas(), dest.prefix_v4().unwrap(), dest.prefix_len());
 
                     }
                 }
@@ -379,7 +379,7 @@ impl BgpTable<Ipv4Addr> {
             .iter()
             .filter(|dest| dest.prefix_v4().is_some()) // Only allow v4
             .for_each(|dest| {
-                match self.table.get_mut(&(dest.prefix_v4().expect("Filter should only allow v4 routes"), dest.length())) {
+                match self.table.get_mut(&(dest.prefix_v4().expect("Filter should only allow v4 routes"), dest.prefix_len())) {
                     // Check to see if destination is in table
                     Some(bgp_table_entry) => {
                         // Check to see if path to be removed is currently the bestpath. RFC 4271, Pg. 20
@@ -392,10 +392,10 @@ impl BgpTable<Ipv4Addr> {
                         // If resulting BGP table entry is empty, remove from table and add destination
                         // to routes to be withdrawn from peers.
                         if bgp_table_entry.is_empty() {
-                           _ = self.table.remove(&(dest.prefix_v4().unwrap(), dest.length()));
-                           removed_routes.push(Route::new(dest.length(), IpAddr::V4(dest.prefix_v4().unwrap())))
+                           _ = self.table.remove(&(dest.prefix_v4().unwrap(), dest.prefix_len()));
+                           removed_routes.push(Route::new(dest.prefix_len(), IpAddr::V4(dest.prefix_v4().unwrap())))
                         } else if was_best { // Otherwise, if new bestpath, add to adv routes container
-                            adv_routes.entry(bgp_table_entry.bestpath().get_pas(), dest.prefix_v4().unwrap(), dest.length());
+                            adv_routes.entry(bgp_table_entry.bestpath().get_pas(), dest.prefix_v4().unwrap(), dest.prefix_len());
                         }
                     },
                     // Do nothing in None case

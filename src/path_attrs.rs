@@ -12,8 +12,6 @@ use std::{
     str::FromStr,
 };
 
-use crate::message_types::ByteLen;
-
 
 // ** CONSTANTS **
 pub (crate) const ORIGIN: u8 = 1;
@@ -106,20 +104,21 @@ impl PathAttr {
         self.attr_flags
     }
     pub fn attr_len(&self) -> &PathAttrLen {
+        // Returns the enum
         &self.attr_len
     }
-    pub fn attr_value(&self) -> &[u8] {
-        self.attr_value.as_slice()
-    }
-}
-impl ByteLen for PathAttr {
-   fn byte_len(&self) -> usize {
+    pub fn attr_len_octets(&self) -> usize {
+        // Returns the actual number of octets
+        // based on the type of PA.
         let attr_len: usize = match self.attr_len {
             PathAttrLen::Std(_) => 1,
             PathAttrLen::Ext(_) => 2,
         };
         2 + attr_len + self.attr_value.len()
-   }
+    }
+    pub fn attr_value(&self) -> &[u8] {
+        self.attr_value.as_slice()
+    }
 }
 
 // This trait will enforce that all impls for custom Path Attributes

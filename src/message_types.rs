@@ -222,62 +222,6 @@ impl Tlv {
     }
 }
 
-
-// Implementing this trait such that all serializable custom types that'll be held in containers
-// must be able to return the size of all the it's primitive fields in numbers of bytes.
-// This will be useful when computing the "total length of a field" that appears often in the
-// RFC. This is NOT the same as size_of since we want deterministic functionality across platforms.
-pub(crate) trait ByteLen {
-    fn byte_len(&self) -> usize;
-}
-
-// Now will use the NewType pattern to create a vec based container with a new byte_len method
-// that easily allows one to get the length of the Vec of custom serializable types in bytes.
-pub(crate) struct SerialVec<T>
-{
-    inner: Vec<T>
-}
-
-// Implementing Deref(Mut) to pass through all the existing methods/traits
-// for Vec
-impl<T> Deref for SerialVec<T> {
-    type Target = Vec<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T> DerefMut for SerialVec<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-    
-}
-impl<T> SerialVec<T> {
-    pub fn new() -> Self {
-        Self {
-            inner: Vec::new()
-        }
-    }
-}
-
-impl<T: ByteLen> SerialVec<T> {
-    pub fn byte_len(&self) -> usize {
-        self.inner
-        .iter()
-        .map(| x | x.byte_len())
-        .sum()
-    }
-}
-
-impl<T> Iterator for SerialVec<T> {
-    type Item = T;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.pop()
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Route {
     // RFC 4271 explicitly states that the prefixes are IP addresses.
@@ -293,7 +237,7 @@ impl Route {
             prefix,
         }
     }
-    pub fn length(&self) -> u8 {
+    pub fn prefix_len(&self) -> u8 {
         self.length
     }
     pub fn prefix_v4(&self) -> Option<Ipv4Addr> {
@@ -309,27 +253,23 @@ impl Route {
             
         }
     }
-}
-
-impl ByteLen for Route {
-    fn byte_len(&self) -> usize {
-        // +1 for length field
+    pub fn len(&self) -> usize {
+        // Size of the route in octets
         match self.prefix {
             IpAddr::V4(_) => 1 + 4,
             IpAddr::V6(_) => 1 + 16,
         }
     }
-    
-}
+} 
 
 // Struct to couple Routes with PAs. Will be used in the Builder for Update messages.
 pub(crate) struct Nlri {
-    routes: SerialVec<Route>,
+    routes: Vec<Route>,
     path_attrs: Vec<PathAttr>
 }
 impl Nlri {
     pub fn new(routes: &[Route], pas: &[PathAttr]) -> Self {
-        let mut this_routes: SerialVec<Route> = SerialVec::new();
+        let mut this_routes: Vec<Route> = Vec::new();
         this_routes.extend_from_slice(routes);
 
         let mut this_pas: Vec<PathAttr> = Vec::new();
@@ -343,13 +283,15 @@ impl Nlri {
 
 
 pub (crate) struct Update {
+    // Length in octets
     withdrawn_routes_len: u16,
-    withdrawn_routes: Option<SerialVec<Route>>,
+    withdrawn_routes: Option<Vec<Route>>,
+    // Length in octets
     total_path_attr_len: u16,
     path_attrs: Option<Vec<PathAttr>>,
     // Only difference from withdrawn routes is that the PAs apply to the NLRI, while the withdrawn
     // routes only need prefix info to be removed.
-    nlri: Option<SerialVec<Route>>,
+    nlri: Option<Vec<Route>>,
 }
 
 impl Update {
@@ -362,7 +304,7 @@ impl Update {
             None => None
         }
     }
-    pub fn withdrawn_routes_mut(&mut self) -> Option<&mut SerialVec<Route>> {
+    pub fn withdrawn_routes_mut(&mut self) -> Option<&mut Vec<Route>> {
         self.withdrawn_routes.as_mut()
     }
     pub fn total_path_attr_len(&self) -> u16 {
@@ -385,7 +327,7 @@ impl Update {
             None => None
         }
     }
-    pub fn nlri_mut(&mut self) -> Option<&mut SerialVec<Route>> {
+    pub fn nlri_mut(&mut self) -> Option<&mut Vec<Route>> {
         self.nlri.as_mut()
 
     }
@@ -393,10 +335,10 @@ impl Update {
 
 pub(crate) struct UpdateBuilder {
     withdrawn_routes_len: u16,
-    withdrawn_routes: Option<SerialVec<Route>>,
+    withdrawn_routes: Option<Vec<Route>>,
     total_path_attr_len: u16,
     path_attrs: Option<Vec<PathAttr>>,
-    nlri: Option<SerialVec<Route>>,
+    nlri: Option<Vec<Route>>,
 }
 
 impl UpdateBuilder {
@@ -409,29 +351,34 @@ impl UpdateBuilder {
             nlri: None,
         }
     }
-    pub fn withdrawn_routes(mut self, routes: SerialVec<Route>) -> Self {
+    pub fn withdrawn_routes(mut self, routes: Vec<Route>) -> Self {
         match routes.len() {
             // If len of routes is 0, erroneous use of the method, just
-            // return self as default.
+            // return self using default value.
             0 => self,
             _ => {
-                self.withdrawn_routes_len = routes.byte_len() as u16;
+                // Only ever expect either Ipv4 or Ipv6 routes, per RFC4271.
+                self.withdrawn_routes_len = {
+                    routes.iter().map(|r| r.len()).sum::<usize>() as u16
+                };
                 self.withdrawn_routes = Some(routes);
                 self
             }
         }
     }
     pub fn nlri(mut self, nlri: Nlri) -> Self {
-        // Again, if len of either data member is 0,
-        // this is erroneous. Will return a default update
-        match (nlri.routes.len(), nlri.path_attrs.len()) {
-            (0, _) | (_, 0) => self,
-            (_, path_attrs_len) => {
+        // Again, if either data member is empty,
+        // this is erroneous. Will return a default update.
+        match (nlri.routes.is_empty(), nlri.path_attrs.is_empty()) {
+            (false, false) => {
+                self.total_path_attr_len = {
+                    nlri.path_attrs.iter().map(|pa| pa.attr_len_octets()).sum::<usize>() as u16
+                };
                 self.path_attrs = Some(nlri.path_attrs);
                 self.nlri = Some(nlri.routes);
-                self.total_path_attr_len = path_attrs_len as u16;
                 self
-            }
+            },
+            _ => self
         }
     }
     pub fn build(self) -> Update {
@@ -447,7 +394,6 @@ impl UpdateBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::{f32::consts::E, sync::Arc};
 
     use crate::path_attrs::{self, PaBuilder};
 
@@ -569,7 +515,7 @@ mod tests {
         let route = Route::new(
             24, 
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
-        let mut routes: SerialVec<Route> = SerialVec::new();
+        let mut routes: Vec<Route> = Vec::new();
         routes.push(route);
 
         // no PAs, can build the Update msg
@@ -593,12 +539,13 @@ mod tests {
         let route = Route::new(
             24, 
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
-        let mut routes: SerialVec<Route> = SerialVec::new();
+        let mut routes: Vec<Route> = Vec::new();
         routes.push(route);
 
         // build the pa vec
         let pa = PathAttrBuilder::<Med>::new().metric(1000).build();
         let pas = vec![pa];
+        let pa_len = pas.iter().map(|pa| pa.attr_len_octets()).sum::<usize>() as u16;
 
         // build the nlri
         let nlri = Nlri::new(routes.as_slice(), pas.as_slice());
@@ -612,7 +559,7 @@ mod tests {
             Some(_) => (),
             None => panic!("Expected to see PAs!")
         }
-        assert_eq!(update.total_path_attr_len(), pas.len() as u16);
+        assert_eq!(update.total_path_attr_len(), pa_len);
         match update.nlri() {
             Some(_) => (),
             None => panic!("Expected to see NLRI!")
@@ -625,19 +572,20 @@ mod tests {
         let w_route = Route::new(
             24, 
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
-        let mut w_routes: SerialVec<Route> = SerialVec::new();
+        let mut w_routes: Vec<Route> = Vec::new();
         w_routes.push(w_route);
 
         // build the nlri routes vec
         let n_route = Route::new(
             24, 
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 0)));
-        let mut n_routes: SerialVec<Route> = SerialVec::new();
+        let mut n_routes: Vec<Route> = Vec::new();
         n_routes.push(n_route);
 
         // build the pa vec
         let pa = PathAttrBuilder::<Med>::new().metric(1000).build();
         let pas = vec![pa];
+        let pa_len = pas.iter().map(|pa| pa.attr_len_octets()).sum::<usize>() as u16;
 
         // build the nlri
         let nlri = Nlri::new(n_routes.as_slice(), pas.as_slice());
@@ -655,7 +603,7 @@ mod tests {
             Some(_) => (),
             None => panic!("Expected to see PAs!")
         }
-        assert_eq!(update.total_path_attr_len(), pas.len() as u16);
+        assert_eq!(update.total_path_attr_len(), pa_len);
         match update.nlri() {
             Some(_) => (),
             None => panic!("Expected to see NLRI!")
