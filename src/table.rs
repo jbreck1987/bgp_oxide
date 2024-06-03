@@ -270,6 +270,9 @@ impl<T> AdvertisedRoutes<T> {
     fn routes(&self) -> &HashMap<Vec<PathAttr>, Vec<Route>> {
         &self.routes
     }
+    fn is_empty(&self) -> bool {
+        self.routes.is_empty()
+    }
 }
 impl AdvertisedRoutes<Ipv4Addr> {
     fn entry(&mut self, key: Vec<PathAttr>, prefix: Ipv4Addr, prefix_len: u8) {
@@ -343,6 +346,8 @@ impl BgpTable<Ipv4Addr> {
         // First check to see if there are any new routes to be added to table. If not, immediately check to
         // see if any routes need to be withdrawn. These two operations are logically disjoint, the intersection of
         // advertised and withdrawn routes from a given Update should be the empty set.
+        // RFC 4271 states that implementations should be able to catch cases where the intersection ISNT the empty set,
+        // which will occur before the data reaches this algorithm.
         if let Some(new_paths) = payload.routes() {
             new_paths
             .iter()
@@ -404,8 +409,8 @@ impl BgpTable<Ipv4Addr> {
         // Clean up the PA table
         self.pa_table.remove_stale();
 
-        // Increment the table version if the table changed.
-        if removed_routes.len() + adv_routes.len() > 0 {
+        // Increment the table version if the table changed (bestpaths changed and/or destinations removed.)
+        if !removed_routes.is_empty() || !adv_routes.is_empty() {
             self.increment_version();
         }
 
