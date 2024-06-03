@@ -32,26 +32,6 @@ impl Display for PathAttrError {
     }
 }
 impl Error for PathAttrError {}
-// This Trait is necessary since the size of the data field for eath PA
-// is variable. Will be used for creating a trait object for use in containers.
-// May not need this trait since not using dynamic dispatch anymore. Functionality
-// can just be moved into the impl.
-pub(crate) trait PAttr {
-    // Bit Fiddling
-
-    fn set_opt_bit(&mut self) {
-        // Sets the appropriate bit to encode whether the PA is optional or not
-        // RFC 4271; Pg. 16
-    }
-    fn set_trans_bit(&mut self) {
-        // Sets the appropriate bit to encode whether the PA is transitive or not
-        // RFC 4271; Pg. 17
-    }
-    fn set_partial_bit(&mut self) {
-         // Sets the appropriate bit to encode whether the PA is Partial or not
-         // RFC 4271; Pg. 17
-    }
-}
 
 // Enum to flag whether a PA is Standard or Extended
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -71,20 +51,6 @@ pub(crate) struct PathAttr {
     attr_value: Vec<u8>,
 }
 
-impl PAttr for PathAttr {
-    fn set_opt_bit(&mut self) {
-        // Set MSB (network byte order) to 1
-        self.attr_flags = self.attr_flags | 1 << 7;
-    }
-    fn set_trans_bit(&mut self) {
-        // Set second MSB (network byte order) to 1
-        self.attr_flags = self.attr_flags | 1 << 6;
-    }
-    fn set_partial_bit(&mut self) {
-         // Set third MSB (network byte order) to 1
-        self.attr_flags = self.attr_flags | 1 << 5;       
-    }
-}
 impl PathAttr {
     pub fn new(
         attr_type_code: u8,
@@ -118,6 +84,18 @@ impl PathAttr {
     }
     pub fn attr_value(&self) -> &[u8] {
         self.attr_value.as_slice()
+    }
+    fn set_opt_bit(&mut self) {
+        // Set MSB (network byte order) to 1
+        self.attr_flags = self.attr_flags | 1 << 7;
+    }
+    fn set_trans_bit(&mut self) {
+        // Set second MSB (network byte order) to 1
+        self.attr_flags = self.attr_flags | 1 << 6;
+    }
+    fn set_partial_bit(&mut self) {
+         // Set third MSB (network byte order) to 1
+        self.attr_flags = self.attr_flags | 1 << 5;       
     }
 }
 
